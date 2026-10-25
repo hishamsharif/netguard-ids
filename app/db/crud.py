@@ -3,7 +3,7 @@ from typing import Any
 import numpy as np
 from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models import AlertLog, Feedback, FeatureLog, ThresholdLog, TrainingRun
+from app.db.models import AlertLog, Feedback, FeatureLog, ThresholdLog, TrainingRun, ModelVersion
 from app.models.schemas import PredictResponse, FeedbackVerdict
 
 
@@ -160,6 +160,99 @@ async def update_training_run(
 
 async def get_training_run(db: AsyncSession, run_id: int):
     return await db.get(TrainingRun, run_id)
+
+
+async def seed_baseline_model_version(
+    db: AsyncSession,
+    metrics: dict,
+    notes: str = "",
+    models_ready: bool = True,
+) -> None:
+    """Insert the v1.0-baseline ModelVersion if none exists yet."""
+    existing = await db.scalar(select(func.count()).select_from(ModelVersion))
+    if existing and existing > 0:
+        return
+    row = ModelVersion(
+        version_tag="v1.0-baseline" if models_ready else "v1.0-pending",
+        stage="all",
+        model_path_rf="models/rf_cicids.joblib" if models_ready else None,
+        model_path_ae="models/lstm_ae_cicids.pt" if models_ready else None,
+        is_active=1 if models_ready else 0,
+        trained_on_source="csv",
+        trained_up_to_alert_id=0,
+        trained_flow_count=0,
+        metrics_json=json.dumps(metrics) if metrics else None,
+        training_run_id=None,
+        notes=notes,
+    )
+    db.add(row)
+    await db.commit()
+
+
+async def get_active_model_version(db: AsyncSession) -> ModelVersion | None:
+    result = await db.execute(
+        select(ModelVersion).where(ModelVersion.is_active == 1).order_by(ModelVersion.id.desc())
+    )
+    return result.scalars().first()
+
+
+async def list_model_versions(db: AsyncSession) -> list[ModelVersion]:
+    result = await db.execute(select(ModelVersion).order_by(ModelVersion.id.desc()))
+    return result.scalars().all()
+
+
+async def activate_model_version(db: AsyncSession, version_id: int) -> ModelVersion | None:
+    """Deactivate all, activate the chosen version."""
+    all_rows = await db.execute(select(ModelVersion))
+    for v in all_rows.scalars().all():
+        v.is_active = 1 if v.id == version_id else 0
+    await db.commit()
+    return await db.get(ModelVersion, version_id)
+
+
+async def count_pending_logs(db: AsyncSession, trained_up_to_alert_id: int) -> int:
+    """Flows added since last DB training (eligible for incremental retraining)."""
+    result = await db.scalar(
+        select(func.count()).select_from(AlertLog)
+        .where(AlertLog.id > trained_up_to_alert_id)
+        .where(AlertLog.ai_skipped == 0)
+    )
+    return result or 0
+
+
+async def register_trained_version(
+    db: AsyncSession,
+    *,
+    version_tag: str,
+    stage: str,
+    training_run_id: int,
+    model_path_rf: str | None,
+    model_path_ae: str | None,
+    trained_up_to_alert_id: int,
+    trained_flow_count: int,
+    metrics: dict,
+) -> ModelVersion:
+    """Deactivate previous active version, register and activate new one."""
+    all_rows = await db.execute(select(ModelVersion).where(ModelVersion.is_active == 1))
+    for v in all_rows.scalars().all():
+        v.is_active = 0
+
+    row = ModelVersion(
+        version_tag=version_tag,
+        stage=stage,
+        model_path_rf=model_path_rf,
+        model_path_ae=model_path_ae,
+        is_active=1,
+        trained_on_source="db",
+        trained_up_to_alert_id=trained_up_to_alert_id,
+        trained_flow_count=trained_flow_count,
+        metrics_json=json.dumps(metrics),
+        training_run_id=training_run_id,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
 
 
 async def list_training_runs(db: AsyncSession, limit: int = 20):

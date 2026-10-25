@@ -15,6 +15,12 @@ function dashboard() {
     // Per-alert feedback state: { alertId: 'TRUE_POSITIVE' | 'FALSE_POSITIVE' | 'FALSE_NEGATIVE' | 'pending' }
     feedbackState: {},
 
+    // Inference tab mode: 'single' | 'batch'
+    inferMode: 'single',
+
+    // Model versions
+    modelVersions: { versions: [], active: null, pending_logs: 0, total_inference_logs: 0 },
+
     // Predict panel state
     predict: {
       featuresJson: JSON.stringify(ATTACK_PRESET, null, 2),
@@ -302,6 +308,32 @@ function dashboard() {
 
     trainingStatusClass(status) {
       return { queued: 'tag-known_pattern', running: 'tag-zero_day', done: 'tag-safe', failed: 'tag-confirmed' }[status] || '';
+    },
+
+    // ── Model version registry ────────────────────────────────────────────
+
+    async loadModelVersions() {
+      try {
+        const res = await fetch('/models/');
+        const data = await res.json();
+        this.modelVersions = {
+          versions: data.versions || [],
+          active: data.versions?.find(v => v.is_active) || null,
+          pending_logs: data.pending_logs || 0,
+          total_inference_logs: data.total_inference_logs || 0,
+        };
+      } catch (_) {}
+    },
+
+    async activateVersion(versionId) {
+      try {
+        const res = await fetch(`/models/${versionId}/activate`, { method: 'POST' });
+        const data = await res.json();
+        await this.loadModelVersions();
+        alert(`Activated: ${data.active?.version_tag}\n\n${data.note}`);
+      } catch (e) {
+        alert('Activate error: ' + e.message);
+      }
     },
   };
 }

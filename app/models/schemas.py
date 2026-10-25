@@ -136,10 +136,13 @@ class TrainingRunResponse(BaseModel):
 
 
 class MetricsResponse(BaseModel):
-    precision: Optional[float]
+    precision: Optional[float]           # live (from feedback) or baseline when feedback_count=0
     recall: Optional[float]
     f1: Optional[float]
     false_positive_rate: Optional[float]
     total_alerts: int
     feedback_count: int
     ae_threshold: float
+    baseline_precision: Optional[float] = None  # always from training eval report
+    baseline_recall: Optional[float] = None
+    baseline_f1: Optional[float] = None

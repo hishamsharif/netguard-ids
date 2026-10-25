@@ -284,10 +284,11 @@ td { padding: 10px 16px; border-bottom: 1px solid var(--border); }
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px;
-  font-family: 'Fira Code', monospace;
+  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   font-size: 12px;
   resize: vertical;
   width: 100%;
+  color-scheme: dark;   /* prevents browser from overriding with light theme */
 }
 
 .predict-result-col { padding-top: 4px; }
@@ -375,6 +376,28 @@ td { padding: 10px 16px; border-bottom: 1px solid var(--border); }
 .btn-fn { background: #d9770622; color: var(--known); }
 .btn-fb:hover { opacity: 0.75; }
 .feedback-given { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+
+/* ── Segmented control (Inference tab mode toggle) ────────────────────────── */
+.seg-ctrl { display: flex; gap: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
+.seg-btn { background: transparent; color: var(--text-muted); border: none; border-radius: 6px; padding: 6px 16px; font-size: 12px; font-weight: 500; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.seg-btn:hover { color: var(--text); }
+.seg-active { background: var(--surface); color: var(--accent); }
+
+.infer-presets { display: flex; align-items: center; gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+
+/* ── Model summary bar (Training tab) ─────────────────────────────────────── */
+.model-summary-bar { display: flex; gap: 16px; padding: 16px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.model-active-card { flex: 1; min-width: 240px; background: var(--bg); border: 1px solid var(--safe); border-radius: 8px; padding: 14px 16px; }
+.model-active-tag { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.model-active-meta { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+.model-active-notes { font-size: 11px; color: var(--text-muted); font-style: italic; }
+
+.pending-logs-card { width: 180px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; text-align: center; }
+.pending-has-logs { border-color: var(--accent); }
+.pending-empty { opacity: 0.6; }
+.pending-count { font-size: 2rem; font-weight: 700; line-height: 1; }
+.pending-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+.pending-hint { font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.4; }
 
 /* ── Batch upload ──────────────────────────────────────────────────────────── */
 .drop-zone {

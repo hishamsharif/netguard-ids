@@ -65,6 +65,29 @@ class FeatureLog(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class ModelVersion(Base):
+    """
+    Registry of every trained model snapshot.
+    Baseline (v1.0) is seeded on first startup from the pre-trained files.
+    Incremental versions are created by each completed TrainingRun.
+    """
+    __tablename__ = "model_version"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    version_tag = Column(String(32), nullable=False)      # e.g. "v1.0-baseline", "v1.1-rf"
+    stage = Column(String(8), nullable=False)             # rf | ae | all
+    model_path_rf = Column(Text, nullable=True)
+    model_path_ae = Column(Text, nullable=True)
+    is_active = Column(Integer, default=0)                # 1 = loaded by inference services
+    trained_on_source = Column(String(8), default="csv")  # csv | db
+    trained_up_to_alert_id = Column(Integer, default=0)   # last alert_id included in training
+    trained_flow_count = Column(Integer, default=0)
+    metrics_json = Column(Text, nullable=True)            # eval metrics from reports/
+    training_run_id = Column(Integer, nullable=True)      # null for baseline
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class ThresholdLog(Base):
     __tablename__ = "threshold_log"
 

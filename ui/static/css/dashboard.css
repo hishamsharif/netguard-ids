@@ -78,6 +78,7 @@ main { padding: 24px; display: flex; flex-direction: column; gap: 24px; }
 }
 .kpi-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
 .kpi-value { font-size: 1.6rem; font-weight: 700; }
+.kpi-sub { font-size: 11px; color: var(--text-muted); line-height: 1.4; margin-top: 2px; }
 
 .charts-row {
   display: grid;
@@ -91,7 +92,8 @@ main { padding: 24px; display: flex; flex-direction: column; gap: 24px; }
   border-radius: 8px;
   padding: 20px;
 }
-.chart-card h2 { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+.chart-card h2 { font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
+.chart-sub { font-size: 11px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; }
 .chart-card canvas { max-height: 220px; }
 
 .alerts-section {
@@ -152,8 +154,12 @@ td { padding: 10px 16px; border-bottom: 1px solid var(--border); }
 }
 .side-panel.open { right: 0; }
 .close-btn { background: transparent; color: var(--text-muted); font-size: 18px; padding: 0; }
-.side-panel h3 { margin: 12px 0; }
-.side-panel h4 { margin: 16px 0 8px; color: var(--text-muted); font-size: 12px; }
+.side-panel h3 { margin: 12px 0 8px; }
+.side-panel h4 { margin: 16px 0 4px; color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+.explain-consensus { margin-bottom: 10px; }
+.explain-nl { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-size: 12px; line-height: 1.6; margin-bottom: 12px; color: var(--text); }
+.section-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; line-height: 1.5; }
+.text-muted { color: var(--text-muted); }
 
 /* ── Tabs ──────────────────────────────────────────────────────────────────── */
 .tab-bar {
@@ -358,3 +364,54 @@ td { padding: 10px 16px; border-bottom: 1px solid var(--border); }
   border-radius: 4px;
   transition: width 0.4s ease;
 }
+
+.stage-hint { font-size: 10px; color: var(--text-muted); margin-bottom: 6px; font-style: italic; }
+
+/* ── Feedback buttons ──────────────────────────────────────────────────────── */
+.feedback-btns { display: flex; gap: 4px; }
+.btn-fb { padding: 2px 7px; font-size: 11px; font-weight: 600; border-radius: 4px; cursor: pointer; border: none; }
+.btn-tp { background: #16a34a22; color: var(--safe); }
+.btn-fp { background: #dc262622; color: var(--confirmed); }
+.btn-fn { background: #d9770622; color: var(--known); }
+.btn-fb:hover { opacity: 0.75; }
+.feedback-given { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+
+/* ── Batch upload ──────────────────────────────────────────────────────────── */
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  padding: 40px 20px;
+  text-align: center;
+  transition: border-color 0.2s, background 0.2s;
+  cursor: default;
+}
+.drop-zone-active { border-color: var(--accent); background: #3b82f610; }
+.drop-zone-inner { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.drop-icon { font-size: 2.5rem; }
+.drop-text { font-size: 14px; font-weight: 600; }
+.drop-sub { font-size: 12px; color: var(--text-muted); }
+.drop-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.btn-upload {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 7px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.btn-upload:hover { opacity: 0.85; }
+.batch-status { margin-top: 16px; text-align: center; color: var(--text-muted); font-size: 13px; }
+.batch-results { margin-top: 24px; }
+.batch-summary-cards { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.batch-stat {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 18px;
+  min-width: 100px;
+  text-align: center;
+}
+.batch-stat-val { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
+.batch-stat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }

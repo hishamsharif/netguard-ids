@@ -23,89 +23,131 @@
   </header>
 
   <main>
-    <!-- KPI strip -->
+
+    <!-- ── KPI strip ──────────────────────────────────────────────────────── -->
     <section class="kpi-strip">
       <div class="kpi">
-        <span class="kpi-label">Total Alerts</span>
+        <span class="kpi-label">Total Flows Processed</span>
         <span class="kpi-value" x-text="metrics.total_alerts ?? '—'"></span>
+        <span class="kpi-sub">All flows since service start</span>
       </div>
       <div class="kpi">
         <span class="kpi-label">Precision</span>
         <span class="kpi-value" x-text="metrics.precision != null ? (metrics.precision*100).toFixed(1)+'%' : '—'"></span>
+        <span class="kpi-sub">Of raised alerts, % were true attacks</span>
       </div>
       <div class="kpi">
         <span class="kpi-label">Recall</span>
         <span class="kpi-value" x-text="metrics.recall != null ? (metrics.recall*100).toFixed(1)+'%' : '—'"></span>
+        <span class="kpi-sub">Of all attacks, % were detected</span>
       </div>
       <div class="kpi">
-        <span class="kpi-label">F1</span>
+        <span class="kpi-label">F1 Score</span>
         <span class="kpi-value" x-text="metrics.f1 != null ? (metrics.f1*100).toFixed(1)+'%' : '—'"></span>
+        <span class="kpi-sub">Balance of precision &amp; recall (higher = better)</span>
       </div>
       <div class="kpi">
-        <span class="kpi-label">AE Threshold</span>
+        <span class="kpi-label">AE Anomaly Threshold</span>
         <span class="kpi-value" x-text="metrics.ae_threshold ?? '—'"></span>
+        <span class="kpi-sub">Reconstruction error above this = anomaly (p95 of training)</span>
       </div>
     </section>
 
-    <!-- Charts row -->
+    <!-- ── Charts row ─────────────────────────────────────────────────────── -->
     <section class="charts-row">
       <div class="chart-card">
         <h2>Consensus Distribution</h2>
+        <p class="chart-sub">How the 3-stage pipeline classified all processed flows</p>
         <canvas id="consensusChart"></canvas>
       </div>
       <div class="chart-card">
-        <h2>AE Score Timeline</h2>
+        <h2>AE Reconstruction Error — Timeline</h2>
+        <p class="chart-sub">Points above the dashed threshold line were flagged as anomalies by the LSTM Autoencoder</p>
         <canvas id="timelineChart"></canvas>
       </div>
     </section>
 
-    <!-- Tab bar -->
+    <!-- ── Tab bar ────────────────────────────────────────────────────────── -->
     <div class="tab-bar">
-      <button class="tab-btn" :class="activeTab === 'alerts' ? 'active' : ''" @click="activeTab = 'alerts'">Alerts</button>
+      <button class="tab-btn" :class="activeTab === 'alerts'  ? 'active' : ''" @click="activeTab = 'alerts'">Alerts</button>
       <button class="tab-btn" :class="activeTab === 'predict' ? 'active' : ''" @click="activeTab = 'predict'">Predict Flow</button>
-      <button class="tab-btn" :class="activeTab === 'training' ? 'active' : ''" @click="activeTab = 'training'; loadTrainingHistory()">Training</button>
+      <button class="tab-btn" :class="activeTab === 'batch'   ? 'active' : ''" @click="activeTab = 'batch'">Batch Upload</button>
+      <button class="tab-btn" :class="activeTab === 'training'? 'active' : ''" @click="activeTab = 'training'; loadTrainingHistory()">Training</button>
     </div>
 
-    <!-- Alert table -->
+    <!-- ── Alerts tab ─────────────────────────────────────────────────────── -->
     <section class="alerts-section" x-show="activeTab === 'alerts'">
       <div class="alerts-header">
-        <h2>Recent Alerts</h2>
+        <div>
+          <h2>Recent Alerts</h2>
+          <p class="section-sub">Click <strong>Explain</strong> on any row to see the full AI breakdown. Use the feedback buttons to label results — this data feeds the active-learning retraining loop.</p>
+        </div>
         <button @click="loadAlerts()">Refresh</button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>RF Label</th>
-            <th>Confidence</th>
-            <th>AE Score</th>
-            <th>Consensus</th>
-            <th>Severity</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template x-for="alert in alerts" :key="alert.id">
-            <tr :class="'row-' + alert.severity.toLowerCase()">
-              <td x-text="new Date(alert.timestamp).toLocaleTimeString()"></td>
-              <td x-text="alert.rf_label"></td>
-              <td x-text="(alert.rf_conf * 100).toFixed(1) + '%'"></td>
-              <td x-text="alert.ae_score.toFixed(4)"></td>
-              <td><span class="tag" :class="'tag-' + alert.consensus.toLowerCase()" x-text="alert.consensus"></span></td>
-              <td x-text="alert.severity"></td>
-              <td>
-                <button class="btn-sm" @click="selectAlert(alert)">Explain</button>
-              </td>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th title="Rule Engine verdict and triggered rules (Stage 1)">Rules (Stage 1)</th>
+              <th title="Random Forest label and confidence (Stage 2)">RF (Stage 2)</th>
+              <th title="LSTM Autoencoder reconstruction error (Stage 3)">AE Score (Stage 3)</th>
+              <th>Consensus</th>
+              <th>Severity</th>
+              <th title="Analyst feedback — labels are stored and used to retrain the model">Feedback</th>
+              <th>Explain</th>
             </tr>
-          </template>
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            <template x-for="alert in alerts" :key="alert.id">
+              <tr :class="'row-' + alert.severity.toLowerCase()">
+                <td x-text="new Date(alert.timestamp).toLocaleTimeString()"></td>
+                <td>
+                  <span class="tag" :class="alert.rf_label === 'SKIPPED' ? 'tag-safe' : 'tag-known_pattern'"
+                        x-text="alert.rf_label === 'SKIPPED' ? 'SAFE' : 'SUSPICIOUS'"></span>
+                </td>
+                <td>
+                  <span x-show="alert.rf_label !== 'SKIPPED'" x-text="alert.rf_label + ' · ' + (alert.rf_conf*100).toFixed(1)+'%'"></span>
+                  <span x-show="alert.rf_label === 'SKIPPED'" class="text-muted">—</span>
+                </td>
+                <td>
+                  <span x-show="alert.ae_score > 0" x-text="alert.ae_score.toFixed(4)"></span>
+                  <span x-show="alert.ae_score <= 0" class="text-muted">—</span>
+                </td>
+                <td><span class="tag" :class="'tag-' + alert.consensus.toLowerCase()" x-text="alert.consensus"></span></td>
+                <td x-text="alert.severity"></td>
+                <td>
+                  <template x-if="feedbackState[alert.id]">
+                    <span class="feedback-given" x-text="feedbackLabel(alert.id)"></span>
+                  </template>
+                  <template x-if="!feedbackState[alert.id]">
+                    <div class="feedback-btns">
+                      <button class="btn-fb btn-tp" title="True Positive — correctly flagged attack"
+                              @click="submitFeedback(alert.id, 'TRUE_POSITIVE')">✓ TP</button>
+                      <button class="btn-fb btn-fp" title="False Positive — benign traffic wrongly flagged"
+                              @click="submitFeedback(alert.id, 'FALSE_POSITIVE')">✗ FP</button>
+                      <button class="btn-fb btn-fn" title="False Negative — attack that was missed (mark for retraining)"
+                              @click="submitFeedback(alert.id, 'FALSE_NEGATIVE')">? FN</button>
+                    </div>
+                  </template>
+                </td>
+                <td>
+                  <button class="btn-sm" @click="selectAlert(alert)">Explain</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
     </section>
 
-    <!-- Predict Flow panel -->
+    <!-- ── Predict Flow tab ───────────────────────────────────────────────── -->
     <section class="alerts-section" x-show="activeTab === 'predict'">
       <div class="alerts-header">
-        <h2>Submit Network Flow for Inference</h2>
+        <div>
+          <h2>Submit a Single Network Flow</h2>
+          <p class="section-sub">Enter CIC-IDS2017 feature values to run the 3-stage pipeline: Rule Engine → Random Forest → LSTM Autoencoder → Consensus verdict.</p>
+        </div>
         <div style="display:flex;gap:8px">
           <button class="btn-preset" @click="loadPreset('benign')">🟢 Benign Preset</button>
           <button class="btn-preset btn-preset-attack" @click="loadPreset('attack')">🔴 Attack Preset (SSH scan)</button>
@@ -113,10 +155,10 @@
       </div>
       <div class="predict-body">
         <div class="predict-input-col">
-          <label class="predict-label">Features JSON (CIC-IDS2017)</label>
-          <textarea class="predict-textarea" x-model="predict.featuresJson" rows="14" spellcheck="false"></textarea>
+          <label class="predict-label">Feature JSON — 20 CIC-IDS2017 features</label>
+          <textarea class="predict-textarea" x-model="predict.featuresJson" rows="16" spellcheck="false"></textarea>
           <button class="btn-train" style="margin-top:10px;width:100%" @click="submitFlow()" :disabled="predict.loading">
-            <span x-show="!predict.loading">▶ Run Inference</span>
+            <span x-show="!predict.loading">▶ Run 3-Stage Inference</span>
             <span x-show="predict.loading">⏳ Processing…</span>
           </button>
           <p x-show="predict.error" class="error-msg" style="margin-top:8px" x-text="predict.error"></p>
@@ -125,16 +167,16 @@
         <div class="predict-result-col" x-show="predict.result">
           <template x-if="predict.result">
             <div>
-              <!-- Pipeline stages -->
               <div class="pipeline-flow">
 
                 <!-- Stage 1: Rule Engine -->
                 <div class="pipeline-stage">
                   <div class="stage-label">Stage 1 — Rule Engine</div>
+                  <div class="stage-hint">10 deterministic rules (port, rate, flag)</div>
                   <div class="stage-verdict" :class="predict.result.rule.verdict === 'SUSPICIOUS' ? 'stage-suspicious' : 'stage-benign'"
                        x-text="predict.result.rule.verdict"></div>
                   <div x-show="predict.result.rule.triggered_rules.length > 0" class="stage-detail">
-                    Rules: <span x-text="predict.result.rule.triggered_rules.join(', ')"></span>
+                    <strong>Triggered:</strong> <span x-text="predict.result.rule.triggered_rules.join(', ')"></span>
                   </div>
                   <div x-show="predict.result.rule.triggered_rules.length === 0" class="stage-detail stage-muted">No rules triggered</div>
                 </div>
@@ -144,17 +186,18 @@
                 <!-- Stage 2: Random Forest -->
                 <div class="pipeline-stage" :class="predict.result.ai_skipped ? 'stage-skipped' : ''">
                   <div class="stage-label">Stage 2 — Random Forest</div>
+                  <div class="stage-hint">200 trees, 70-feature CIC-IDS2017</div>
                   <template x-if="!predict.result.ai_skipped && predict.result.rf">
                     <div>
-                      <div class="stage-verdict stage-rf" x-text="predict.result.rf.label"></div>
-                      <div class="conf-bar-wrap">
+                      <div class="stage-verdict stage-rf" x-text="predict.result.rf.label === '0' ? 'BENIGN (class 0)' : 'ATTACK (class ' + predict.result.rf.label + ')'"></div>
+                      <div class="conf-bar-wrap" title="RF confidence">
                         <div class="conf-bar" :style="'width:' + (predict.result.rf.confidence*100).toFixed(0) + '%'"></div>
                       </div>
                       <div class="stage-detail" x-text="(predict.result.rf.confidence*100).toFixed(1) + '% confidence'"></div>
                     </div>
                   </template>
                   <template x-if="predict.result.ai_skipped">
-                    <div class="stage-muted">Skipped — fast path</div>
+                    <div class="stage-muted" style="font-size:12px;margin-top:4px">Skipped — rule said BENIGN (fast path)</div>
                   </template>
                 </div>
 
@@ -163,16 +206,22 @@
                 <!-- Stage 3: LSTM Autoencoder -->
                 <div class="pipeline-stage" :class="predict.result.ai_skipped ? 'stage-skipped' : ''">
                   <div class="stage-label">Stage 3 — LSTM Autoencoder</div>
+                  <div class="stage-hint">Transfer-learned from NSL-KDD → CIC-IDS2017</div>
                   <template x-if="!predict.result.ai_skipped && predict.result.ae">
                     <div>
                       <div class="stage-verdict" :class="predict.result.ae.label === 'ANOMALY' ? 'stage-suspicious' : 'stage-benign'"
                            x-text="predict.result.ae.label"></div>
-                      <div class="stage-detail">Score: <strong x-text="predict.result.ae.score.toFixed(4)"></strong></div>
-                      <div class="stage-detail stage-muted">Threshold: <span x-text="predict.result.ae.threshold.toFixed(6)"></span></div>
+                      <div class="stage-detail">
+                        Score: <strong x-text="predict.result.ae.score.toFixed(4)"></strong>
+                      </div>
+                      <div class="stage-detail stage-muted">
+                        Threshold: <span x-text="predict.result.ae.threshold.toFixed(6)"></span>
+                        <span x-show="predict.result.ae.score > predict.result.ae.threshold"> — exceeds by ×<span x-text="(predict.result.ae.score / predict.result.ae.threshold).toFixed(0)"></span></span>
+                      </div>
                     </div>
                   </template>
                   <template x-if="predict.result.ai_skipped">
-                    <div class="stage-muted">Skipped — fast path</div>
+                    <div class="stage-muted" style="font-size:12px;margin-top:4px">Skipped — fast path</div>
                   </template>
                 </div>
 
@@ -180,18 +229,19 @@
 
                 <!-- Consensus -->
                 <div class="pipeline-stage pipeline-stage-consensus">
-                  <div class="stage-label">Consensus</div>
+                  <div class="stage-label">Consensus Verdict</div>
+                  <div class="stage-hint">All 3 stages agree before escalating</div>
                   <div class="stage-consensus-verdict">
                     <span class="tag" :class="consensusColorClass(predict.result.consensus)" x-text="predict.result.consensus"></span>
                   </div>
                   <div class="stage-detail" x-text="predict.result.severity + ' severity'"></div>
-                  <div class="stage-detail stage-muted" x-show="predict.result.ai_skipped">AI pipeline skipped</div>
+                  <div class="stage-detail stage-muted" x-show="predict.result.ai_skipped">Fast path — AI skipped</div>
                 </div>
 
-              </div><!-- end pipeline-flow -->
+              </div>
 
-              <button class="btn-train" style="margin-top:16px" @click="explainLastFlow()">
-                🔍 Explain This Flow
+              <button class="btn-train" style="margin-top:16px" @click="explainLastFlow(); activeTab = 'alerts'">
+                🔍 Explain This Flow (opens side panel)
               </button>
             </div>
           </template>
@@ -199,15 +249,122 @@
       </div>
     </section>
 
-    <!-- Training panel -->
+    <!-- ── Batch Upload tab ───────────────────────────────────────────────── -->
+    <section class="alerts-section" x-show="activeTab === 'batch'">
+      <div class="alerts-header">
+        <div>
+          <h2>Batch CSV Upload</h2>
+          <p class="section-sub">Upload a CSV file where column headers are CIC-IDS2017 feature names. Each row is run through the full 3-stage pipeline. Results are saved to the alerts log.</p>
+        </div>
+      </div>
+      <div style="padding:20px">
+
+        <!-- Drop zone -->
+        <div class="drop-zone"
+             :class="batch.dragOver ? 'drop-zone-active' : ''"
+             @dragover.prevent="batch.dragOver = true"
+             @dragleave.prevent="batch.dragOver = false"
+             @drop="handleDrop($event)">
+          <div class="drop-zone-inner">
+            <div class="drop-icon">📂</div>
+            <div class="drop-text">Drag &amp; drop a CSV file here</div>
+            <div class="drop-sub">or</div>
+            <label class="btn-upload">
+              Browse…
+              <input type="file" accept=".csv" style="display:none" @change="handleFileInput($event)" />
+            </label>
+            <div class="drop-hint">CSV must have CIC-IDS2017 feature names as column headers</div>
+          </div>
+        </div>
+
+        <div x-show="batch.loading" class="batch-status">
+          <span>⏳ Processing rows…</span>
+        </div>
+        <div x-show="batch.error" class="error-msg" style="margin-top:12px" x-text="batch.error"></div>
+
+        <!-- Batch results summary -->
+        <template x-if="batch.result && !batch.loading">
+          <div class="batch-results">
+            <div class="batch-summary-cards">
+              <div class="batch-stat">
+                <div class="batch-stat-val" x-text="batch.result.total"></div>
+                <div class="batch-stat-label">Total rows</div>
+              </div>
+              <div class="batch-stat">
+                <div class="batch-stat-val" x-text="batch.result.processed"></div>
+                <div class="batch-stat-label">Processed</div>
+              </div>
+              <div class="batch-stat" x-show="batch.result.error_count > 0">
+                <div class="batch-stat-val" style="color:var(--confirmed)" x-text="batch.result.error_count"></div>
+                <div class="batch-stat-label">Parse errors</div>
+              </div>
+              <template x-for="item in batchConsensusSummary()" :key="item.label">
+                <div class="batch-stat">
+                  <div class="batch-stat-val">
+                    <span class="tag" :class="'tag-' + item.label.toLowerCase()" x-text="item.count"></span>
+                  </div>
+                  <div class="batch-stat-label" x-text="item.label"></div>
+                </div>
+              </template>
+            </div>
+
+            <h3 style="margin:16px 0 8px;font-size:13px;color:var(--text-muted)">Per-Row Results</h3>
+            <div style="overflow-x:auto;max-height:300px;overflow-y:auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Row</th>
+                    <th>Consensus</th>
+                    <th>Severity</th>
+                    <th>RF Label</th>
+                    <th>RF Conf</th>
+                    <th>AE Score</th>
+                    <th>Rules</th>
+                    <th>AI Path</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="row in batch.result.results" :key="row.row">
+                    <tr :class="'row-' + row.severity.toLowerCase()">
+                      <td x-text="row.row"></td>
+                      <td><span class="tag" :class="'tag-' + row.consensus.toLowerCase()" x-text="row.consensus"></span></td>
+                      <td x-text="row.severity"></td>
+                      <td x-text="row.rf_label"></td>
+                      <td x-text="row.ai_skipped ? '—' : (row.rf_conf*100).toFixed(1)+'%'"></td>
+                      <td x-text="row.ai_skipped ? '—' : row.ae_score.toFixed(6)"></td>
+                      <td x-text="row.rules.length ? row.rules.join(', ') : '—'"></td>
+                      <td x-text="row.ai_skipped ? 'Fast path' : 'Full (RF+AE)'"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Parse errors -->
+            <template x-if="batch.result.errors?.length">
+              <div style="margin-top:12px">
+                <h3 style="font-size:13px;color:var(--confirmed);margin-bottom:8px">Parse Errors</h3>
+                <template x-for="e in batch.result.errors" :key="e.row">
+                  <p class="error-msg" x-text="'Row ' + e.row + ': ' + e.error"></p>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- ── Training tab ───────────────────────────────────────────────────── -->
     <section class="alerts-section" x-show="activeTab === 'training'">
       <div class="alerts-header">
-        <h2>ML/DL Training</h2>
+        <div>
+          <h2>ML/DL Training</h2>
+          <p class="section-sub">Re-train the Random Forest or LSTM Autoencoder. Analyst feedback (TP/FP/FN labels from the Alerts tab) is incorporated when Data Source = Database.</p>
+        </div>
         <button @click="loadTrainingHistory()">Refresh History</button>
       </div>
 
-      <!-- Controls -->
-      <div class="training-controls">
+      <div class="training-controls" style="padding:16px 20px 20px">
         <label>Stage
           <select x-model="training.stage" :disabled="training.running">
             <option value="rf">Random Forest</option>
@@ -218,8 +375,8 @@
         </label>
         <label>Data source
           <select x-model="training.dataSource" :disabled="training.running">
-            <option value="csv">CSV files</option>
-            <option value="db" disabled>Database (future)</option>
+            <option value="csv">CSV files (original training data)</option>
+            <option value="db">Database (includes analyst feedback)</option>
           </select>
         </label>
         <button class="btn-train" @click="startTraining()" :disabled="training.running">
@@ -228,9 +385,8 @@
         </button>
       </div>
 
-      <!-- Current run status -->
       <template x-if="training.currentRun">
-        <div class="training-status-card">
+        <div class="training-status-card" style="margin:0 20px 16px">
           <strong>Run #<span x-text="training.currentRun.id"></span></strong>
           <span class="tag" :class="trainingStatusClass(training.currentRun.status)" x-text="training.currentRun.status.toUpperCase()"></span>
           <span x-text="'Stage: ' + training.currentRun.stage.toUpperCase()"></span>
@@ -243,19 +399,10 @@
         </div>
       </template>
 
-      <!-- History table -->
-      <h3 style="margin-top:1.5rem">Training History</h3>
+      <h3 style="margin:0 20px 8px;font-size:13px;color:var(--text-muted)">Training History</h3>
       <table>
         <thead>
-          <tr>
-            <th>#</th>
-            <th>Stage</th>
-            <th>Status</th>
-            <th>Source</th>
-            <th>Started</th>
-            <th>Duration</th>
-            <th>Metrics</th>
-          </tr>
+          <tr><th>#</th><th>Stage</th><th>Status</th><th>Source</th><th>Started</th><th>Duration</th><th>Metrics</th></tr>
         </thead>
         <tbody>
           <template x-for="run in training.history" :key="run.id">
@@ -265,12 +412,10 @@
               <td><span class="tag" :class="trainingStatusClass(run.status)" x-text="run.status.toUpperCase()"></span></td>
               <td x-text="run.data_source"></td>
               <td x-text="run.started_at ? new Date(run.started_at).toLocaleString() : '—'"></td>
-              <td x-text="run.started_at && run.completed_at
-                ? Math.round((new Date(run.completed_at) - new Date(run.started_at)) / 1000) + 's'
-                : run.status === 'running' ? 'running…' : '—'"></td>
+              <td x-text="run.started_at && run.completed_at ? Math.round((new Date(run.completed_at)-new Date(run.started_at))/1000)+'s' : run.status==='running' ? 'running…' : '—'"></td>
               <td>
                 <template x-if="run.metrics">
-                  <span x-text="Object.entries(run.metrics).map(([k,v]) => k + ':' + (v.macro_f1 ?? v.threshold ?? '✓')).join(' | ')"></span>
+                  <span x-text="Object.entries(run.metrics).map(([k,v]) => k+':'+(v.macro_f1??v.threshold??'✓')).join(' | ')"></span>
                 </template>
                 <template x-if="!run.metrics">—</template>
               </td>
@@ -282,17 +427,31 @@
         </tbody>
       </table>
     </section>
+
   </main>
 
-  <!-- Explain panel -->
+  <!-- ── Explain side panel ──────────────────────────────────────────────── -->
   <div class="side-panel" :class="selectedAlert ? 'open' : ''">
     <button class="close-btn" @click="selectedAlert = null">✕</button>
     <template x-if="selectedAlert">
       <div>
-        <h3>Explanation — Alert #<span x-text="selectedAlert.id"></span></h3>
-        <p x-text="explanation.natural_language"></p>
-        <h4>Top Features by Importance (RF)</h4>
-        <canvas id="shapChart"></canvas>
+        <h3>Explanation — <span x-text="selectedAlert.id === 'submitted' ? 'Submitted Flow' : 'Alert #' + selectedAlert.id"></span></h3>
+
+        <div class="explain-consensus" x-show="selectedAlert.consensus">
+          <span class="tag" :class="consensusColorClass(selectedAlert.consensus)" x-text="selectedAlert.consensus"></span>
+        </div>
+
+        <div class="explain-nl">
+          <p x-text="explanation.natural_language"></p>
+        </div>
+
+        <h4>Top Features by RF Importance (Gini)</h4>
+        <p class="chart-sub" style="margin-bottom:8px">Higher bar = feature contributed more to the RF classification decision</p>
+        <canvas id="importanceChart" style="max-height:180px"></canvas>
+
+        <h4 style="margin-top:20px">AE Reconstruction Error per Feature</h4>
+        <p class="chart-sub" style="margin-bottom:8px">Higher bar = feature was harder to reconstruct; large errors indicate anomalous behaviour</p>
+        <canvas id="aeErrorChart" style="max-height:180px"></canvas>
       </div>
     </template>
   </div>

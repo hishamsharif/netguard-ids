@@ -12,6 +12,9 @@ function dashboard() {
     ws: null,
     activeTab: 'alerts',
 
+    // Per-alert feedback state: { alertId: 'TRUE_POSITIVE' | 'FALSE_POSITIVE' | 'FALSE_NEGATIVE' | 'pending' }
+    feedbackState: {},
+
     // Predict panel state
     predict: {
       featuresJson: JSON.stringify(ATTACK_PRESET, null, 2),
@@ -19,6 +22,14 @@ function dashboard() {
       error: null,
       result: null,
       lastFeatures: null,
+    },
+
+    // Batch CSV upload state
+    batch: {
+      loading: false,
+      result: null,
+      error: null,
+      dragOver: false,
     },
 
     // Training panel state
@@ -41,19 +52,79 @@ function dashboard() {
     async loadAlerts() {
       const res = await fetch('/alerts/?limit=50');
       this.alerts = await res.json();
-      if (window.updateCharts) updateCharts(this.alerts);
+      if (window.updateCharts) updateCharts(this.alerts, this.metrics.ae_threshold);
     },
 
     async loadMetrics() {
       const res = await fetch('/metrics/');
       this.metrics = await res.json();
+      if (window.updateCharts) updateCharts(this.alerts, this.metrics.ae_threshold);
     },
+
+    // ── Alert explain via stored raw_features ────────────────────────────────
 
     async selectAlert(alert) {
       this.selectedAlert = alert;
-      this.explanation = { natural_language: 'Use the Predict tab to submit a flow, then click Explain to see the full AI breakdown.' };
-      if (window.renderShapChart) renderShapChart([]);
+      this.explanation = { natural_language: 'Loading explanation…', loading: true };
+      if (window.renderImportanceChart) renderImportanceChart([]);
+      if (window.renderAeErrorChart) renderAeErrorChart([]);
+
+      try {
+        // Fetch full alert detail (includes raw_features stored at inference time)
+        const detailRes = await fetch(`/alerts/${alert.id}/detail`);
+        if (!detailRes.ok) throw new Error(`Detail fetch failed: ${detailRes.status}`);
+        const detail = await detailRes.json();
+
+        if (!detail.raw_features) {
+          this.explanation = { natural_language: 'No stored features for this alert. Use the Predict tab to run a new flow and explain it.' };
+          return;
+        }
+
+        const explainRes = await fetch('/explain/flow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ features: detail.raw_features }),
+        });
+        if (!explainRes.ok) throw new Error(`Explain failed: ${explainRes.status}`);
+        const data = await explainRes.json();
+        this.explanation = data;
+        if (window.renderImportanceChart) renderImportanceChart(data.rf_importance || []);
+        if (window.renderAeErrorChart) renderAeErrorChart(data.ae_recon_error || []);
+
+        // Restore any previously-given feedback for this alert
+        if (detail.feedback?.length) {
+          this.feedbackState[alert.id] = detail.feedback[detail.feedback.length - 1].verdict;
+        }
+      } catch (e) {
+        this.explanation = { natural_language: 'Explain error: ' + e.message };
+      }
     },
+
+    // ── Feedback ─────────────────────────────────────────────────────────────
+
+    async submitFeedback(alertId, verdict) {
+      this.feedbackState[alertId] = 'pending';
+      try {
+        await fetch(`/alerts/${alertId}/feedback`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ verdict }),
+        });
+        this.feedbackState[alertId] = verdict;
+      } catch (e) {
+        delete this.feedbackState[alertId];
+        alert('Feedback error: ' + e.message);
+      }
+    },
+
+    feedbackLabel(alertId) {
+      const v = this.feedbackState[alertId];
+      if (!v) return null;
+      if (v === 'pending') return '…';
+      return { TRUE_POSITIVE: '✓ TP', FALSE_POSITIVE: '✗ FP', FALSE_NEGATIVE: '? FN' }[v] || v;
+    },
+
+    // ── Predict single flow ───────────────────────────────────────────────────
 
     loadPreset(type) {
       this.predict.featuresJson = JSON.stringify(type === 'benign' ? BENIGN_PRESET : ATTACK_PRESET, null, 2);
@@ -89,7 +160,8 @@ function dashboard() {
       if (!this.predict.lastFeatures) return;
       this.explanation = { natural_language: 'Loading explanation…' };
       this.selectedAlert = { id: 'submitted', consensus: this.predict.result?.consensus };
-      if (window.renderShapChart) renderShapChart([]);
+      if (window.renderImportanceChart) renderImportanceChart([]);
+      if (window.renderAeErrorChart) renderAeErrorChart([]);
       try {
         const res = await fetch('/explain/flow', {
           method: 'POST',
@@ -98,7 +170,8 @@ function dashboard() {
         });
         const data = await res.json();
         this.explanation = data;
-        if (window.renderShapChart) renderShapChart(data.rf_importance || []);
+        if (window.renderImportanceChart) renderImportanceChart(data.rf_importance || []);
+        if (window.renderAeErrorChart) renderAeErrorChart(data.ae_recon_error || []);
       } catch (e) {
         this.explanation = { natural_language: 'Explain error: ' + e.message };
       }
@@ -108,12 +181,55 @@ function dashboard() {
       return { SAFE: 'tag-safe', CONFIRMED: 'tag-confirmed', KNOWN_PATTERN: 'tag-known_pattern', ZERO_DAY: 'tag-zero_day' }[val] || '';
     },
 
-    toggleReplay() {
-      if (this.replaying) {
-        this.stopReplay();
-      } else {
-        this.startReplay();
+    // ── Batch CSV upload ──────────────────────────────────────────────────────
+
+    handleDrop(ev) {
+      ev.preventDefault();
+      this.batch.dragOver = false;
+      const file = ev.dataTransfer?.files[0];
+      if (file) this._uploadFile(file);
+    },
+
+    handleFileInput(ev) {
+      const file = ev.target?.files[0];
+      if (file) this._uploadFile(file);
+    },
+
+    async _uploadFile(file) {
+      if (!file.name.endsWith('.csv')) {
+        this.batch.error = 'Please upload a .csv file';
+        return;
       }
+      this.batch.loading = true;
+      this.batch.error = null;
+      this.batch.result = null;
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const res = await fetch('/predict/batch', { method: 'POST', body: fd });
+        if (!res.ok) {
+          const err = await res.json();
+          this.batch.error = err.detail || `HTTP ${res.status}`;
+          return;
+        }
+        this.batch.result = await res.json();
+        await this.loadAlerts();
+      } catch (e) {
+        this.batch.error = 'Upload error: ' + e.message;
+      } finally {
+        this.batch.loading = false;
+      }
+    },
+
+    batchConsensusSummary() {
+      if (!this.batch.result?.consensus_counts) return [];
+      return Object.entries(this.batch.result.consensus_counts).map(([k, v]) => ({ label: k, count: v }));
+    },
+
+    // ── Replay ────────────────────────────────────────────────────────────────
+
+    toggleReplay() {
+      if (this.replaying) { this.stopReplay(); } else { this.startReplay(); }
     },
 
     startReplay() {
@@ -134,7 +250,7 @@ function dashboard() {
       this.replaying = false;
     },
 
-    // ── Training controls ─────────────────────────────────────────────────────
+    // ── Training ──────────────────────────────────────────────────────────────
 
     async startTraining() {
       if (this.training.running) return;
@@ -144,10 +260,7 @@ function dashboard() {
         const res = await fetch('/training/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            stage: this.training.stage,
-            data_source: this.training.dataSource,
-          }),
+          body: JSON.stringify({ stage: this.training.stage, data_source: this.training.dataSource }),
         });
         if (!res.ok) {
           const err = await res.json();
@@ -188,12 +301,7 @@ function dashboard() {
     },
 
     trainingStatusClass(status) {
-      return {
-        queued:  'tag-known_pattern',
-        running: 'tag-zero_day',
-        done:    'tag-safe',
-        failed:  'tag-confirmed',
-      }[status] || '';
+      return { queued: 'tag-known_pattern', running: 'tag-zero_day', done: 'tag-safe', failed: 'tag-confirmed' }[status] || '';
     },
   };
 }

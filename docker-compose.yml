@@ -1,8 +1,26 @@
 version: "3.9"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# NetGuard IDS — Docker Compose
+#
+# CURRENT DEFAULT (local dev / academic submission):
+#   Run locally with SQLite — no Docker needed:
+#     bash ops.sh start
+#
+# THIS FILE runs the full 4-service Docker stack and uses PostgreSQL as the
+# operational DB (Decision D-010, queued for production deployment).
+# PostgreSQL is NOT used in the academic submission; it is retained here as
+# an architectural extension point for a production / real-life deployment.
+#
+# To run the Docker stack:
+#     bash ops.sh start --docker
+# ─────────────────────────────────────────────────────────────────────────────
+
 services:
 
-  # ── PostgreSQL (operational DB) ───────────────────────────────────────────────
+  # ── PostgreSQL — production DB (D-010, future / real-life deployment only) ─
+  # Not used in the academic submission. SQLite (netguard_dev.db) is the
+  # default for local development and the A2 coursework demo.
   db:
     image: postgres:16-alpine
     container_name: netguard-db
@@ -35,6 +53,7 @@ services:
     env_file:
       - .env
     environment:
+      # Overrides .env SQLite default → PostgreSQL when running via Docker
       - DATABASE_URL=postgresql+asyncpg://netguard:netguard_dev@db:5432/netguard
     depends_on:
       db:

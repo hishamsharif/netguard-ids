@@ -43,16 +43,20 @@ async def _seed_baseline() -> None:
 async def _migrate_db() -> None:
     """Add columns introduced after initial schema — idempotent (silently skips existing)."""
     from app.database import engine
-    new_cols = [
-        "ALTER TABLE model_version ADD COLUMN is_active_rf INTEGER DEFAULT 0",
-        "ALTER TABLE model_version ADD COLUMN is_active_ae INTEGER DEFAULT 0",
-    ]
     async with engine.begin() as conn:
-        for sql in new_cols:
+        for sql in [
+            "ALTER TABLE model_version ADD COLUMN is_active_rf INTEGER DEFAULT 0",
+            "ALTER TABLE model_version ADD COLUMN is_active_ae INTEGER DEFAULT 0",
+        ]:
             try:
                 await conn.execute(text(sql))
             except Exception:
                 pass  # column already exists
+        # Backfill: any row that is fully active but has the new flags at 0
+        await conn.execute(text(
+            "UPDATE model_version SET is_active_rf=1, is_active_ae=1 "
+            "WHERE is_active=1 AND is_active_rf=0 AND is_active_ae=0"
+        ))
 
 
 @asynccontextmanager

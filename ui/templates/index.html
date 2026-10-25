@@ -62,6 +62,7 @@
     <!-- Tab bar -->
     <div class="tab-bar">
       <button class="tab-btn" :class="activeTab === 'alerts' ? 'active' : ''" @click="activeTab = 'alerts'">Alerts</button>
+      <button class="tab-btn" :class="activeTab === 'predict' ? 'active' : ''" @click="activeTab = 'predict'">Predict Flow</button>
       <button class="tab-btn" :class="activeTab === 'training' ? 'active' : ''" @click="activeTab = 'training'; loadTrainingHistory()">Training</button>
     </div>
 
@@ -99,6 +100,103 @@
           </template>
         </tbody>
       </table>
+    </section>
+
+    <!-- Predict Flow panel -->
+    <section class="alerts-section" x-show="activeTab === 'predict'">
+      <div class="alerts-header">
+        <h2>Submit Network Flow for Inference</h2>
+        <div style="display:flex;gap:8px">
+          <button class="btn-preset" @click="loadPreset('benign')">🟢 Benign Preset</button>
+          <button class="btn-preset btn-preset-attack" @click="loadPreset('attack')">🔴 Attack Preset (SSH scan)</button>
+        </div>
+      </div>
+      <div class="predict-body">
+        <div class="predict-input-col">
+          <label class="predict-label">Features JSON (CIC-IDS2017)</label>
+          <textarea class="predict-textarea" x-model="predict.featuresJson" rows="14" spellcheck="false"></textarea>
+          <button class="btn-train" style="margin-top:10px;width:100%" @click="submitFlow()" :disabled="predict.loading">
+            <span x-show="!predict.loading">▶ Run Inference</span>
+            <span x-show="predict.loading">⏳ Processing…</span>
+          </button>
+          <p x-show="predict.error" class="error-msg" style="margin-top:8px" x-text="predict.error"></p>
+        </div>
+
+        <div class="predict-result-col" x-show="predict.result">
+          <template x-if="predict.result">
+            <div>
+              <!-- Pipeline stages -->
+              <div class="pipeline-flow">
+
+                <!-- Stage 1: Rule Engine -->
+                <div class="pipeline-stage">
+                  <div class="stage-label">Stage 1 — Rule Engine</div>
+                  <div class="stage-verdict" :class="predict.result.rule.verdict === 'SUSPICIOUS' ? 'stage-suspicious' : 'stage-benign'"
+                       x-text="predict.result.rule.verdict"></div>
+                  <div x-show="predict.result.rule.triggered_rules.length > 0" class="stage-detail">
+                    Rules: <span x-text="predict.result.rule.triggered_rules.join(', ')"></span>
+                  </div>
+                  <div x-show="predict.result.rule.triggered_rules.length === 0" class="stage-detail stage-muted">No rules triggered</div>
+                </div>
+
+                <div class="pipeline-arrow">→</div>
+
+                <!-- Stage 2: Random Forest -->
+                <div class="pipeline-stage" :class="predict.result.ai_skipped ? 'stage-skipped' : ''">
+                  <div class="stage-label">Stage 2 — Random Forest</div>
+                  <template x-if="!predict.result.ai_skipped && predict.result.rf">
+                    <div>
+                      <div class="stage-verdict stage-rf" x-text="predict.result.rf.label"></div>
+                      <div class="conf-bar-wrap">
+                        <div class="conf-bar" :style="'width:' + (predict.result.rf.confidence*100).toFixed(0) + '%'"></div>
+                      </div>
+                      <div class="stage-detail" x-text="(predict.result.rf.confidence*100).toFixed(1) + '% confidence'"></div>
+                    </div>
+                  </template>
+                  <template x-if="predict.result.ai_skipped">
+                    <div class="stage-muted">Skipped — fast path</div>
+                  </template>
+                </div>
+
+                <div class="pipeline-arrow">→</div>
+
+                <!-- Stage 3: LSTM Autoencoder -->
+                <div class="pipeline-stage" :class="predict.result.ai_skipped ? 'stage-skipped' : ''">
+                  <div class="stage-label">Stage 3 — LSTM Autoencoder</div>
+                  <template x-if="!predict.result.ai_skipped && predict.result.ae">
+                    <div>
+                      <div class="stage-verdict" :class="predict.result.ae.label === 'ANOMALY' ? 'stage-suspicious' : 'stage-benign'"
+                           x-text="predict.result.ae.label"></div>
+                      <div class="stage-detail">Score: <strong x-text="predict.result.ae.score.toFixed(4)"></strong></div>
+                      <div class="stage-detail stage-muted">Threshold: <span x-text="predict.result.ae.threshold.toFixed(6)"></span></div>
+                    </div>
+                  </template>
+                  <template x-if="predict.result.ai_skipped">
+                    <div class="stage-muted">Skipped — fast path</div>
+                  </template>
+                </div>
+
+                <div class="pipeline-arrow">→</div>
+
+                <!-- Consensus -->
+                <div class="pipeline-stage pipeline-stage-consensus">
+                  <div class="stage-label">Consensus</div>
+                  <div class="stage-consensus-verdict">
+                    <span class="tag" :class="consensusColorClass(predict.result.consensus)" x-text="predict.result.consensus"></span>
+                  </div>
+                  <div class="stage-detail" x-text="predict.result.severity + ' severity'"></div>
+                  <div class="stage-detail stage-muted" x-show="predict.result.ai_skipped">AI pipeline skipped</div>
+                </div>
+
+              </div><!-- end pipeline-flow -->
+
+              <button class="btn-train" style="margin-top:16px" @click="explainLastFlow()">
+                🔍 Explain This Flow
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
     </section>
 
     <!-- Training panel -->
@@ -193,7 +291,7 @@
       <div>
         <h3>Explanation — Alert #<span x-text="selectedAlert.id"></span></h3>
         <p x-text="explanation.natural_language"></p>
-        <h4>Top SHAP Features (RF)</h4>
+        <h4>Top Features by Importance (RF)</h4>
         <canvas id="shapChart"></canvas>
       </div>
     </template>

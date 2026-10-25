@@ -1,0 +1,29 @@
+============================================================
+NetGuard IDS — Demo Payloads
+Use with: POST http://localhost:8000/predict/flow
+============================================================
+
+─── PAYLOAD 1: BENIGN FLOW (paste into Swagger /predict/flow) ───
+Expected: consensus=SAFE, ai_skipped=true (fast path)
+
+{"features": {"Destination Port": 443, "Flow Duration": 50000, "Total Fwd Packets": 10, "Total Backward Packets": 8, "Total Length of Fwd Packets": 500, "Total Length of Bwd Packets": 400, "Fwd Packet Length Max": 100, "Fwd Packet Length Min": 20, "Fwd Packet Length Mean": 50.0, "Fwd Packet Length Std": 15.0, "Bwd Packet Length Max": 80, "Bwd Packet Length Min": 10, "Bwd Packet Length Mean": 50.0, "Bwd Packet Length Std": 12.0, "Flow Bytes/s": 10000.0, "Flow Packets/s": 200.0, "Flow IAT Mean": 5000.0, "Flow IAT Std": 1000.0, "Flow IAT Max": 10000, "Flow IAT Min": 100}}
+
+
+─── PAYLOAD 2: ATTACK FLOW (paste into Swagger /predict/flow) ───
+Expected: consensus=CONFIRMED, severity=CRITICAL, ai_skipped=false
+Rules triggered: R-01 high_flow_rate, R-06 high_risk_port (SSH port 22)
+RF confidence: ~0.92  |  AE score: ~1.17 (threshold: 0.008927)
+
+{"features": {"Destination Port": 22, "Flow Duration": 100, "Total Fwd Packets": 500, "Total Backward Packets": 0, "Total Length of Fwd Packets": 0, "Total Length of Bwd Packets": 0, "Fwd Packet Length Max": 0, "Fwd Packet Length Min": 0, "Fwd Packet Length Mean": 0.0, "Fwd Packet Length Std": 0.0, "Bwd Packet Length Max": 0, "Bwd Packet Length Min": 0, "Bwd Packet Length Mean": 0.0, "Bwd Packet Length Std": 0.0, "Flow Bytes/s": 0.0, "Flow Packets/s": 5000000.0, "Flow IAT Mean": 0.2, "Flow IAT Std": 0.0, "Flow IAT Max": 1, "Flow IAT Min": 0}}
+
+
+─── PAYLOAD 3: EXPLAIN FLOW (paste into Swagger /explain/flow) ───
+Same as Payload 2 — shows RF importances + AE per-feature errors
+
+{"features": {"Destination Port": 22, "Flow Duration": 100, "Total Fwd Packets": 500, "Total Backward Packets": 0, "Total Length of Fwd Packets": 0, "Total Length of Bwd Packets": 0, "Fwd Packet Length Max": 0, "Fwd Packet Length Min": 0, "Fwd Packet Length Mean": 0.0, "Fwd Packet Length Std": 0.0, "Bwd Packet Length Max": 0, "Bwd Packet Length Min": 0, "Bwd Packet Length Mean": 0.0, "Bwd Packet Length Std": 0.0, "Flow Bytes/s": 0.0, "Flow Packets/s": 5000000.0, "Flow IAT Mean": 0.2, "Flow IAT Std": 0.0, "Flow IAT Max": 1, "Flow IAT Min": 0}}
+
+============================================================
+BROWSER TABS TO OPEN BEFORE RECORDING:
+  Tab 1: http://localhost:8000          (Dashboard)
+  Tab 2: http://localhost:8000/docs     (Swagger UI)
+============================================================

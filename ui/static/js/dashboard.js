@@ -1,3 +1,6 @@
+const BENIGN_PRESET = {"Destination Port":443,"Flow Duration":50000,"Total Fwd Packets":10,"Total Backward Packets":8,"Total Length of Fwd Packets":500,"Total Length of Bwd Packets":400,"Fwd Packet Length Max":100,"Fwd Packet Length Min":20,"Fwd Packet Length Mean":50.0,"Fwd Packet Length Std":15.0,"Bwd Packet Length Max":80,"Bwd Packet Length Min":10,"Bwd Packet Length Mean":50.0,"Bwd Packet Length Std":12.0,"Flow Bytes/s":10000.0,"Flow Packets/s":200.0,"Flow IAT Mean":5000.0,"Flow IAT Std":1000.0,"Flow IAT Max":10000,"Flow IAT Min":100};
+const ATTACK_PRESET = {"Destination Port":22,"Flow Duration":100,"Total Fwd Packets":500,"Total Backward Packets":0,"Total Length of Fwd Packets":0,"Total Length of Bwd Packets":0,"Fwd Packet Length Max":0,"Fwd Packet Length Min":0,"Fwd Packet Length Mean":0.0,"Fwd Packet Length Std":0.0,"Bwd Packet Length Max":0,"Bwd Packet Length Min":0,"Bwd Packet Length Mean":0.0,"Bwd Packet Length Std":0.0,"Flow Bytes/s":0.0,"Flow Packets/s":5000000.0,"Flow IAT Mean":0.2,"Flow IAT Std":0.0,"Flow IAT Max":1,"Flow IAT Min":0};
+
 function dashboard() {
   return {
     connected: false,
@@ -8,6 +11,15 @@ function dashboard() {
     explanation: {},
     ws: null,
     activeTab: 'alerts',
+
+    // Predict panel state
+    predict: {
+      featuresJson: JSON.stringify(ATTACK_PRESET, null, 2),
+      loading: false,
+      error: null,
+      result: null,
+      lastFeatures: null,
+    },
 
     // Training panel state
     training: {
@@ -39,9 +51,61 @@ function dashboard() {
 
     async selectAlert(alert) {
       this.selectedAlert = alert;
-      // In a real scenario we'd have stored the original features; here we show a placeholder
-      this.explanation = { natural_language: 'Explanation requires original flow features.' };
+      this.explanation = { natural_language: 'Use the Predict tab to submit a flow, then click Explain to see the full AI breakdown.' };
       if (window.renderShapChart) renderShapChart([]);
+    },
+
+    loadPreset(type) {
+      this.predict.featuresJson = JSON.stringify(type === 'benign' ? BENIGN_PRESET : ATTACK_PRESET, null, 2);
+    },
+
+    async submitFlow() {
+      this.predict.loading = true;
+      this.predict.error = null;
+      this.predict.result = null;
+      try {
+        const features = JSON.parse(this.predict.featuresJson);
+        const res = await fetch('/predict/flow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ features }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          this.predict.error = err.detail || `HTTP ${res.status}`;
+          return;
+        }
+        this.predict.result = await res.json();
+        this.predict.lastFeatures = features;
+        await this.loadAlerts();
+      } catch (e) {
+        this.predict.error = 'JSON parse error: ' + e.message;
+      } finally {
+        this.predict.loading = false;
+      }
+    },
+
+    async explainLastFlow() {
+      if (!this.predict.lastFeatures) return;
+      this.explanation = { natural_language: 'Loading explanation…' };
+      this.selectedAlert = { id: 'submitted', consensus: this.predict.result?.consensus };
+      if (window.renderShapChart) renderShapChart([]);
+      try {
+        const res = await fetch('/explain/flow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ features: this.predict.lastFeatures }),
+        });
+        const data = await res.json();
+        this.explanation = data;
+        if (window.renderShapChart) renderShapChart(data.rf_importance || []);
+      } catch (e) {
+        this.explanation = { natural_language: 'Explain error: ' + e.message };
+      }
+    },
+
+    consensusColorClass(val) {
+      return { SAFE: 'tag-safe', CONFIRMED: 'tag-confirmed', KNOWN_PATTERN: 'tag-known_pattern', ZERO_DAY: 'tag-zero_day' }[val] || '';
     },
 
     toggleReplay() {

@@ -1,45 +1,23 @@
 version: "3.9"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# NetGuard IDS — Docker Compose
+# NetGuard IDS — Docker Compose  (SQLite / local-demo stack)
 #
-# CURRENT DEFAULT (local dev / academic submission):
-#   Run locally with SQLite — no Docker needed:
-#     bash ops.sh start
+# DEFAULT: Runs 3 services — api, ui, mcp — using SQLite for persistence.
+# No separate database container is needed.
 #
-# THIS FILE runs the full 4-service Docker stack and uses PostgreSQL as the
-# operational DB (Decision D-010, queued for production deployment).
-# PostgreSQL is NOT used in the academic submission; it is retained here as
-# an architectural extension point for a production / real-life deployment.
+#   bash ops.sh start --docker        # builds + starts these 3 services
 #
-# To run the Docker stack:
-#     bash ops.sh start --docker
+# For the PostgreSQL production stack (Decision D-010, future deployment):
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up
+#
+# For local dev without Docker (academic submission default):
+#   bash ops.sh start                 # uses SQLite via .env DATABASE_URL
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
 
-  # ── PostgreSQL — production DB (D-010, future / real-life deployment only) ─
-  # Not used in the academic submission. SQLite (netguard_dev.db) is the
-  # default for local development and the A2 coursework demo.
-  db:
-    image: postgres:16-alpine
-    container_name: netguard-db
-    environment:
-      POSTGRES_USER: netguard
-      POSTGRES_PASSWORD: netguard_dev
-      POSTGRES_DB: netguard
-    volumes:
-      - netguard_pg:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U netguard -d netguard"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  # ── FastAPI inference + training backend ──────────────────────────────────────
+  # ── FastAPI inference + training backend ─────────────────────────────────
   api:
     build:
       context: .
@@ -51,13 +29,7 @@ services:
       - ./models:/app/models:ro
       - ./data:/app/data:ro
     env_file:
-      - .env
-    environment:
-      # Overrides .env SQLite default → PostgreSQL when running via Docker
-      - DATABASE_URL=postgresql+asyncpg://netguard:netguard_dev@db:5432/netguard
-    depends_on:
-      db:
-        condition: service_healthy
+      - .env   # uses SQLite by default (DATABASE_URL=sqlite+aiosqlite:///./netguard_dev.db)
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -66,7 +38,7 @@ services:
       retries: 3
       start_period: 20s
 
-  # ── Nginx UI ──────────────────────────────────────────────────────────────────
+  # ── Nginx UI ──────────────────────────────────────────────────────────────
   ui:
     build:
       context: .
@@ -79,7 +51,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ── FastMCP tool server ───────────────────────────────────────────────────────
+  # ── FastMCP tool server ───────────────────────────────────────────────────
   mcp:
     build:
       context: .
@@ -97,6 +69,3 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
-
-volumes:
-  netguard_pg:

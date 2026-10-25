@@ -178,6 +178,8 @@ async def seed_baseline_model_version(
         model_path_rf="models/rf_cicids.joblib" if models_ready else None,
         model_path_ae="models/lstm_ae_cicids.pt" if models_ready else None,
         is_active=1 if models_ready else 0,
+        is_active_rf=1 if models_ready else 0,
+        is_active_ae=1 if models_ready else 0,
         trained_on_source="csv",
         trained_up_to_alert_id=0,
         trained_flow_count=0,
@@ -196,16 +198,51 @@ async def get_active_model_version(db: AsyncSession) -> ModelVersion | None:
     return result.scalars().first()
 
 
+async def get_active_rf_version(db: AsyncSession) -> ModelVersion | None:
+    result = await db.execute(
+        select(ModelVersion).where(ModelVersion.is_active_rf == 1).order_by(ModelVersion.id.desc())
+    )
+    return result.scalars().first()
+
+
+async def get_active_ae_version(db: AsyncSession) -> ModelVersion | None:
+    result = await db.execute(
+        select(ModelVersion).where(ModelVersion.is_active_ae == 1).order_by(ModelVersion.id.desc())
+    )
+    return result.scalars().first()
+
+
 async def list_model_versions(db: AsyncSession) -> list[ModelVersion]:
     result = await db.execute(select(ModelVersion).order_by(ModelVersion.id.desc()))
     return result.scalars().all()
 
 
 async def activate_model_version(db: AsyncSession, version_id: int) -> ModelVersion | None:
-    """Deactivate all, activate the chosen version."""
+    """Deactivate all, activate the chosen version for all flags."""
     all_rows = await db.execute(select(ModelVersion))
     for v in all_rows.scalars().all():
-        v.is_active = 1 if v.id == version_id else 0
+        active = v.id == version_id
+        v.is_active = 1 if active else 0
+        v.is_active_rf = 1 if active else 0
+        v.is_active_ae = 1 if active else 0
+    await db.commit()
+    return await db.get(ModelVersion, version_id)
+
+
+async def activate_rf_version(db: AsyncSession, version_id: int) -> ModelVersion | None:
+    """Switch which version's RF model is active — independent of AE."""
+    all_rows = await db.execute(select(ModelVersion))
+    for v in all_rows.scalars().all():
+        v.is_active_rf = 1 if v.id == version_id else 0
+    await db.commit()
+    return await db.get(ModelVersion, version_id)
+
+
+async def activate_ae_version(db: AsyncSession, version_id: int) -> ModelVersion | None:
+    """Switch which version's AE model is active — independent of RF."""
+    all_rows = await db.execute(select(ModelVersion))
+    for v in all_rows.scalars().all():
+        v.is_active_ae = 1 if v.id == version_id else 0
     await db.commit()
     return await db.get(ModelVersion, version_id)
 
@@ -232,10 +269,19 @@ async def register_trained_version(
     trained_flow_count: int,
     metrics: dict,
 ) -> ModelVersion:
-    """Deactivate previous active version, register and activate new one."""
-    all_rows = await db.execute(select(ModelVersion).where(ModelVersion.is_active == 1))
-    for v in all_rows.scalars().all():
+    """Deactivate previous active version, register and activate new one.
+    is_active_rf / is_active_ae are only set for the stages actually trained."""
+    trains_rf = stage in ("rf", "all")
+    trains_ae = stage in ("ae", "ae1", "ae2", "all")
+
+    # Clear unified active; clear stage-specific flags only for trained stages
+    all_rows = (await db.execute(select(ModelVersion))).scalars().all()
+    for v in all_rows:
         v.is_active = 0
+        if trains_rf:
+            v.is_active_rf = 0
+        if trains_ae:
+            v.is_active_ae = 0
 
     row = ModelVersion(
         version_tag=version_tag,
@@ -243,6 +289,8 @@ async def register_trained_version(
         model_path_rf=model_path_rf,
         model_path_ae=model_path_ae,
         is_active=1,
+        is_active_rf=1 if trains_rf else 0,
+        is_active_ae=1 if trains_ae else 0,
         trained_on_source="db",
         trained_up_to_alert_id=trained_up_to_alert_id,
         trained_flow_count=trained_flow_count,

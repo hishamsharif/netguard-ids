@@ -1,5 +1,6 @@
-const BENIGN_PRESET = {"Destination Port":443,"Flow Duration":50000,"Total Fwd Packets":10,"Total Backward Packets":8,"Total Length of Fwd Packets":500,"Total Length of Bwd Packets":400,"Fwd Packet Length Max":100,"Fwd Packet Length Min":20,"Fwd Packet Length Mean":50.0,"Fwd Packet Length Std":15.0,"Bwd Packet Length Max":80,"Bwd Packet Length Min":10,"Bwd Packet Length Mean":50.0,"Bwd Packet Length Std":12.0,"Flow Bytes/s":10000.0,"Flow Packets/s":200.0,"Flow IAT Mean":5000.0,"Flow IAT Std":1000.0,"Flow IAT Max":10000,"Flow IAT Min":100};
-const ATTACK_PRESET = {"Destination Port":22,"Flow Duration":100,"Total Fwd Packets":500,"Total Backward Packets":0,"Total Length of Fwd Packets":0,"Total Length of Bwd Packets":0,"Fwd Packet Length Max":0,"Fwd Packet Length Min":0,"Fwd Packet Length Mean":0.0,"Fwd Packet Length Std":0.0,"Bwd Packet Length Max":0,"Bwd Packet Length Min":0,"Bwd Packet Length Mean":0.0,"Bwd Packet Length Std":0.0,"Flow Bytes/s":0.0,"Flow Packets/s":5000000.0,"Flow IAT Mean":0.2,"Flow IAT Std":0.0,"Flow IAT Max":1,"Flow IAT Min":0};
+const CSV_HEADER = "Destination Port,Flow Duration,Total Fwd Packets,Total Backward Packets,Total Length of Fwd Packets,Total Length of Bwd Packets,Fwd Packet Length Max,Fwd Packet Length Min,Fwd Packet Length Mean,Fwd Packet Length Std,Bwd Packet Length Max,Bwd Packet Length Min,Bwd Packet Length Mean,Bwd Packet Length Std,Flow Bytes/s,Flow Packets/s,Flow IAT Mean,Flow IAT Std,Flow IAT Max,Flow IAT Min";
+const BENIGN_ROW  = "443,50000,10,8,500,400,100,20,50.0,15.0,80,10,50.0,12.0,10000.0,200.0,5000.0,1000.0,10000,100";
+const ATTACK_ROW  = "22,100,500,0,0,0,0,0,0.0,0.0,0,0,0.0,0.0,0.0,5000000.0,0.2,0.0,1,0";
 
 function dashboard() {
   return {
@@ -10,27 +11,25 @@ function dashboard() {
     selectedAlert: null,
     explanation: {},
     ws: null,
-    activeTab: 'alerts',
+    activeTab: 'infer',
 
-    // Per-alert feedback state: { alertId: 'TRUE_POSITIVE' | 'FALSE_POSITIVE' | 'FALSE_NEGATIVE' | 'pending' }
     feedbackState: {},
 
-    // Inference tab mode: 'single' | 'batch'
-    inferMode: 'single',
+    // 'paste' | 'upload'
+    inferMode: 'paste',
 
-    // Model versions
-    modelVersions: { versions: [], active: null, pending_logs: 0, total_inference_logs: 0 },
+    // Model versions registry
+    modelVersions: { versions: [], active: null, pending_logs: 0, total_inference_logs: 0, active_rf_id: null, active_ae_id: null },
 
-    // Predict panel state
-    predict: {
-      featuresJson: JSON.stringify(ATTACK_PRESET, null, 2),
-      loading: false,
-      error: null,
-      result: null,
-      lastFeatures: null,
+    // Inference state (replaces old predict + drives both paste/upload modes)
+    infer: {
+      csvText: CSV_HEADER + "\n" + ATTACK_ROW,
+      rfVersionId: null,
+      aeVersionId: null,
+      applyMsg: '',
     },
 
-    // Batch CSV upload state
+    // Batch CSV result state (shared between paste and upload)
     batch: {
       loading: false,
       result: null,
@@ -51,7 +50,7 @@ function dashboard() {
     async init() {
       await this.loadAlerts();
       await this.loadMetrics();
-      await this.loadTrainingHistory();
+      await this.loadModelVersions();
       setInterval(() => this.loadMetrics(), 30000);
     },
 
@@ -67,127 +66,27 @@ function dashboard() {
       if (window.updateCharts) updateCharts(this.alerts, this.metrics.ae_threshold);
     },
 
-    // ── Alert explain via stored raw_features ────────────────────────────────
-
-    async selectAlert(alert) {
-      this.selectedAlert = alert;
-      this.explanation = { natural_language: 'Loading explanation…', loading: true };
-      if (window.renderImportanceChart) renderImportanceChart([]);
-      if (window.renderAeErrorChart) renderAeErrorChart([]);
-
-      try {
-        // Fetch full alert detail (includes raw_features stored at inference time)
-        const detailRes = await fetch(`/alerts/${alert.id}/detail`);
-        if (!detailRes.ok) throw new Error(`Detail fetch failed: ${detailRes.status}`);
-        const detail = await detailRes.json();
-
-        if (!detail.raw_features) {
-          this.explanation = { natural_language: 'No stored features for this alert. Use the Predict tab to run a new flow and explain it.' };
-          return;
-        }
-
-        const explainRes = await fetch('/explain/flow', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ features: detail.raw_features }),
-        });
-        if (!explainRes.ok) throw new Error(`Explain failed: ${explainRes.status}`);
-        const data = await explainRes.json();
-        this.explanation = data;
-        if (window.renderImportanceChart) renderImportanceChart(data.rf_importance || []);
-        if (window.renderAeErrorChart) renderAeErrorChart(data.ae_recon_error || []);
-
-        // Restore any previously-given feedback for this alert
-        if (detail.feedback?.length) {
-          this.feedbackState[alert.id] = detail.feedback[detail.feedback.length - 1].verdict;
-        }
-      } catch (e) {
-        this.explanation = { natural_language: 'Explain error: ' + e.message };
-      }
-    },
-
-    // ── Feedback ─────────────────────────────────────────────────────────────
-
-    async submitFeedback(alertId, verdict) {
-      this.feedbackState[alertId] = 'pending';
-      try {
-        await fetch(`/alerts/${alertId}/feedback`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ verdict }),
-        });
-        this.feedbackState[alertId] = verdict;
-      } catch (e) {
-        delete this.feedbackState[alertId];
-        alert('Feedback error: ' + e.message);
-      }
-    },
-
-    feedbackLabel(alertId) {
-      const v = this.feedbackState[alertId];
-      if (!v) return null;
-      if (v === 'pending') return '…';
-      return { TRUE_POSITIVE: '✓ TP', FALSE_POSITIVE: '✗ FP', FALSE_NEGATIVE: '? FN' }[v] || v;
-    },
-
-    // ── Predict single flow ───────────────────────────────────────────────────
+    // ── Preset CSV generators ─────────────────────────────────────────────────
 
     loadPreset(type) {
-      this.predict.featuresJson = JSON.stringify(type === 'benign' ? BENIGN_PRESET : ATTACK_PRESET, null, 2);
+      const row = type === 'benign' ? BENIGN_ROW : ATTACK_ROW;
+      this.infer.csvText = CSV_HEADER + "\n" + row;
     },
 
-    async submitFlow() {
-      this.predict.loading = true;
-      this.predict.error = null;
-      this.predict.result = null;
-      try {
-        const features = JSON.parse(this.predict.featuresJson);
-        const res = await fetch('/predict/flow', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ features }),
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          this.predict.error = err.detail || `HTTP ${res.status}`;
-          return;
-        }
-        this.predict.result = await res.json();
-        this.predict.lastFeatures = features;
-        await this.loadAlerts();
-      } catch (e) {
-        this.predict.error = 'JSON parse error: ' + e.message;
-      } finally {
-        this.predict.loading = false;
+    // ── Paste mode: convert text → File → reuse _uploadFile ──────────────────
+
+    async submitCsvPaste() {
+      const text = this.infer.csvText.trim();
+      if (!text) {
+        this.batch.error = 'Paste CSV content first';
+        return;
       }
+      const blob = new Blob([text], { type: 'text/csv' });
+      const file = new File([blob], 'paste.csv', { type: 'text/csv' });
+      await this._uploadFile(file);
     },
 
-    async explainLastFlow() {
-      if (!this.predict.lastFeatures) return;
-      this.explanation = { natural_language: 'Loading explanation…' };
-      this.selectedAlert = { id: 'submitted', consensus: this.predict.result?.consensus };
-      if (window.renderImportanceChart) renderImportanceChart([]);
-      if (window.renderAeErrorChart) renderAeErrorChart([]);
-      try {
-        const res = await fetch('/explain/flow', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ features: this.predict.lastFeatures }),
-        });
-        const data = await res.json();
-        this.explanation = data;
-        if (window.renderImportanceChart) renderImportanceChart(data.rf_importance || []);
-        if (window.renderAeErrorChart) renderAeErrorChart(data.ae_recon_error || []);
-      } catch (e) {
-        this.explanation = { natural_language: 'Explain error: ' + e.message };
-      }
-    },
-
-    consensusColorClass(val) {
-      return { SAFE: 'tag-safe', CONFIRMED: 'tag-confirmed', KNOWN_PATTERN: 'tag-known_pattern', ZERO_DAY: 'tag-zero_day' }[val] || '';
-    },
-
-    // ── Batch CSV upload ──────────────────────────────────────────────────────
+    // ── Batch CSV upload core (shared) ────────────────────────────────────────
 
     handleDrop(ev) {
       ev.preventDefault();
@@ -230,6 +129,158 @@ function dashboard() {
     batchConsensusSummary() {
       if (!this.batch.result?.consensus_counts) return [];
       return Object.entries(this.batch.result.consensus_counts).map(([k, v]) => ({ label: k, count: v }));
+    },
+
+    // ── Alert explain via stored raw_features ─────────────────────────────────
+
+    async selectAlert(alert) {
+      this.selectedAlert = alert;
+      this.explanation = { natural_language: 'Loading explanation…', loading: true };
+      if (window.renderImportanceChart) renderImportanceChart([]);
+      if (window.renderAeErrorChart) renderAeErrorChart([]);
+      try {
+        const detailRes = await fetch(`/alerts/${alert.id}/detail`);
+        if (!detailRes.ok) throw new Error(`Detail fetch failed: ${detailRes.status}`);
+        const detail = await detailRes.json();
+        if (!detail.raw_features) {
+          this.explanation = { natural_language: 'No stored features for this alert. Run a new flow and explain it.' };
+          return;
+        }
+        const explainRes = await fetch('/explain/flow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ features: detail.raw_features }),
+        });
+        if (!explainRes.ok) throw new Error(`Explain failed: ${explainRes.status}`);
+        const data = await explainRes.json();
+        this.explanation = data;
+        if (window.renderImportanceChart) renderImportanceChart(data.rf_importance || []);
+        if (window.renderAeErrorChart) renderAeErrorChart(data.ae_recon_error || []);
+        if (detail.feedback?.length) {
+          this.feedbackState[alert.id] = detail.feedback[detail.feedback.length - 1].verdict;
+        }
+      } catch (e) {
+        this.explanation = { natural_language: 'Explain error: ' + e.message };
+      }
+    },
+
+    // ── Explain from a batch result row (uses alert_id stored in result) ───────
+
+    async explainBatchRow(row) {
+      if (!row.alert_id) {
+        this.explanation = { natural_language: 'No alert_id returned for this row — cannot explain.' };
+        this.selectedAlert = { id: 'batch-row', consensus: row.consensus };
+        return;
+      }
+      const fakeAlert = { id: row.alert_id, consensus: row.consensus, severity: row.severity };
+      await this.selectAlert(fakeAlert);
+    },
+
+    // ── Feedback ──────────────────────────────────────────────────────────────
+
+    async submitFeedback(alertId, verdict) {
+      this.feedbackState[alertId] = 'pending';
+      try {
+        await fetch(`/alerts/${alertId}/feedback`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ verdict }),
+        });
+        this.feedbackState[alertId] = verdict;
+      } catch (e) {
+        delete this.feedbackState[alertId];
+        alert('Feedback error: ' + e.message);
+      }
+    },
+
+    feedbackLabel(alertId) {
+      const v = this.feedbackState[alertId];
+      if (!v) return null;
+      if (v === 'pending') return '…';
+      return { TRUE_POSITIVE: '✓ TP', FALSE_POSITIVE: '✗ FP', FALSE_NEGATIVE: '? FN' }[v] || v;
+    },
+
+    consensusColorClass(val) {
+      return { SAFE: 'tag-safe', CONFIRMED: 'tag-confirmed', KNOWN_PATTERN: 'tag-known_pattern', ZERO_DAY: 'tag-zero_day' }[val] || '';
+    },
+
+    // ── Model version registry ────────────────────────────────────────────────
+
+    async loadModelVersions() {
+      try {
+        const res = await fetch('/models/');
+        const data = await res.json();
+        this.modelVersions = {
+          versions: data.versions || [],
+          active: data.versions?.find(v => v.is_active) || null,
+          pending_logs: data.pending_logs || 0,
+          total_inference_logs: data.total_inference_logs || 0,
+          active_rf_id: data.active_rf_id || null,
+          active_ae_id: data.active_ae_id || null,
+        };
+        // Default inference selectors to current active versions
+        if (!this.infer.rfVersionId) {
+          this.infer.rfVersionId = data.active_rf_id || (data.versions?.[0]?.id ?? null);
+        }
+        if (!this.infer.aeVersionId) {
+          this.infer.aeVersionId = data.active_ae_id || (data.versions?.[0]?.id ?? null);
+        }
+      } catch (_) {}
+    },
+
+    // Computed filter: versions that have an RF model
+    rfVersions() {
+      return (this.modelVersions.versions || []).filter(v => v.model_path_rf);
+    },
+
+    // Computed filter: versions that have an AE model
+    aeVersions() {
+      return (this.modelVersions.versions || []).filter(v => v.model_path_ae);
+    },
+
+    async applyModelVersions() {
+      this.infer.applyMsg = '';
+      const results = [];
+      if (this.infer.rfVersionId) {
+        try {
+          await fetch(`/models/${this.infer.rfVersionId}/activate/rf`, { method: 'POST' });
+          results.push('RF activated');
+        } catch (_) {
+          results.push('RF error');
+        }
+      }
+      if (this.infer.aeVersionId) {
+        try {
+          await fetch(`/models/${this.infer.aeVersionId}/activate/ae`, { method: 'POST' });
+          results.push('AE activated');
+        } catch (_) {
+          results.push('AE error');
+        }
+      }
+      await this.loadModelVersions();
+      this.infer.applyMsg = results.join(' · ') + ' — takes effect on next restart';
+    },
+
+    async activateRfVersion(versionId) {
+      try {
+        const res = await fetch(`/models/${versionId}/activate/rf`, { method: 'POST' });
+        const data = await res.json();
+        await this.loadModelVersions();
+        alert(`RF activated: ${data.active_rf?.version_tag}\n\n${data.note}`);
+      } catch (e) {
+        alert('Activate RF error: ' + e.message);
+      }
+    },
+
+    async activateAeVersion(versionId) {
+      try {
+        const res = await fetch(`/models/${versionId}/activate/ae`, { method: 'POST' });
+        const data = await res.json();
+        await this.loadModelVersions();
+        alert(`AE activated: ${data.active_ae?.version_tag}\n\n${data.note}`);
+      } catch (e) {
+        alert('Activate AE error: ' + e.message);
+      }
     },
 
     // ── Replay ────────────────────────────────────────────────────────────────
@@ -294,6 +345,7 @@ function dashboard() {
             clearInterval(this.training.pollTimer);
             this.training.running = false;
             await this.loadTrainingHistory();
+            await this.loadModelVersions();
           }
         } catch (_) {}
       }, 3000);
@@ -308,32 +360,6 @@ function dashboard() {
 
     trainingStatusClass(status) {
       return { queued: 'tag-known_pattern', running: 'tag-zero_day', done: 'tag-safe', failed: 'tag-confirmed' }[status] || '';
-    },
-
-    // ── Model version registry ────────────────────────────────────────────
-
-    async loadModelVersions() {
-      try {
-        const res = await fetch('/models/');
-        const data = await res.json();
-        this.modelVersions = {
-          versions: data.versions || [],
-          active: data.versions?.find(v => v.is_active) || null,
-          pending_logs: data.pending_logs || 0,
-          total_inference_logs: data.total_inference_logs || 0,
-        };
-      } catch (_) {}
-    },
-
-    async activateVersion(versionId) {
-      try {
-        const res = await fetch(`/models/${versionId}/activate`, { method: 'POST' });
-        const data = await res.json();
-        await this.loadModelVersions();
-        alert(`Activated: ${data.active?.version_tag}\n\n${data.note}`);
-      } catch (e) {
-        alert('Activate error: ' + e.message);
-      }
     },
   };
 }

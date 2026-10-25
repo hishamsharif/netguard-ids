@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.requests import Request
+from sqlalchemy import text
 from app.database import init_db, AsyncSessionLocal
 from app.services.preprocessor import preprocessor
 from app.services.inference import rf_inference, ae_inference
@@ -39,9 +40,25 @@ async def _seed_baseline() -> None:
         await seed_baseline_model_version(db, baseline_metrics, notes=notes, models_ready=(rf_ready and ae_ready))
 
 
+async def _migrate_db() -> None:
+    """Add columns introduced after initial schema — idempotent (silently skips existing)."""
+    from app.database import engine
+    new_cols = [
+        "ALTER TABLE model_version ADD COLUMN is_active_rf INTEGER DEFAULT 0",
+        "ALTER TABLE model_version ADD COLUMN is_active_ae INTEGER DEFAULT 0",
+    ]
+    async with engine.begin() as conn:
+        for sql in new_cols:
+            try:
+                await conn.execute(text(sql))
+            except Exception:
+                pass  # column already exists
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await _migrate_db()
     await _seed_baseline()
     preprocessor.load()
     rf_inference.load()

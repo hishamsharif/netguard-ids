@@ -78,7 +78,9 @@ class ModelVersion(Base):
     stage = Column(String(8), nullable=False)             # rf | ae | all
     model_path_rf = Column(Text, nullable=True)
     model_path_ae = Column(Text, nullable=True)
-    is_active = Column(Integer, default=0)                # 1 = loaded by inference services
+    is_active = Column(Integer, default=0)                # 1 = unified active (most recent full version)
+    is_active_rf = Column(Integer, default=0)             # 1 = this version's RF model is in use
+    is_active_ae = Column(Integer, default=0)             # 1 = this version's AE model is in use
     trained_on_source = Column(String(8), default="csv")  # csv | db
     trained_up_to_alert_id = Column(Integer, default=0)   # last alert_id included in training
     trained_flow_count = Column(Integer, default=0)

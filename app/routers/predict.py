@@ -15,8 +15,8 @@ from app.db.crud import insert_alert, insert_feature_log
 router = APIRouter(prefix="/predict", tags=["inference"])
 
 
-async def _infer_single(features: dict, db: AsyncSession) -> PredictResponse:
-    """Core 3-stage pipeline; shared by /flow and /batch."""
+async def _infer_single(features: dict, db: AsyncSession) -> tuple[PredictResponse, int]:
+    """Core 3-stage pipeline; returns (response, alert_id)."""
     flow_id = str(uuid.uuid4())
     ts = datetime.now(timezone.utc)
 
@@ -34,8 +34,8 @@ async def _infer_single(features: dict, db: AsyncSession) -> PredictResponse:
             consensus=Consensus.SAFE, severity=Severity.LOW,
             ai_skipped=True, timestamp=ts,
         )
-        await insert_alert(db, response, features)
-        return response
+        alert_id = await insert_alert(db, response, features)
+        return response, alert_id
 
     try:
         x = preprocessor.transform(features)
@@ -52,13 +52,14 @@ async def _infer_single(features: dict, db: AsyncSession) -> PredictResponse:
     )
     alert_id = await insert_alert(db, response, features)
     await insert_feature_log(db, alert_id, x)
-    return response
+    return response, alert_id
 
 
 @router.post("/flow", response_model=PredictResponse)
 async def predict_flow(req: FlowRequest, db: AsyncSession = Depends(get_db)):
     try:
-        return await _infer_single(req.features, db)
+        response, _ = await _infer_single(req.features, db)
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -87,12 +88,14 @@ async def predict_batch(file: UploadFile = File(...), db: AsyncSession = Depends
                 for k, v in row.items()
                 if k and v and v.strip() not in ("", "nan", "NaN", "inf")
             }
-            res = await _infer_single(features, db)
+            res, alert_id = await _infer_single(features, db)
             results.append({
                 "row": i + 1,
+                "alert_id": alert_id,
                 "flow_id": res.flow_id,
                 "consensus": res.consensus.value,
                 "severity": res.severity.value,
+                "rule_verdict": res.rule.verdict.value,
                 "rf_label": res.rf.label if res.rf else "SKIPPED",
                 "rf_conf": round(res.rf.confidence, 4) if res.rf else 0.0,
                 "ae_score": round(res.ae.score, 6) if res.ae else 0.0,

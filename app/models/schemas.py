@@ -90,7 +90,7 @@ class BatchSummary(BaseModel):
 
 class ExplainResponse(BaseModel):
     flow_id: str
-    rf_shap: list[dict]
+    rf_importance: list[dict]   # global Gini importances (SHAP queued as FE-012)
     ae_recon_error: list[dict]
     natural_language: str
 

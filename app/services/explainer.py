@@ -5,7 +5,7 @@ RF explanation uses global model.feature_importances_ ranked for the predicted
 class (fast; no C++ extension required).  AE explanation uses per-feature
 reconstruction error (per-sample, meaningful for anomaly scoring).
 
-Full per-sample SHAP wired to stored feature_log is queued as FE-006.
+Full per-sample SHAP wired to stored feature_log is queued as FE-012.
 """
 import numpy as np
 from app.services.inference import rf_inference, ae_inference

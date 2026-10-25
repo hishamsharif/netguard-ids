@@ -121,7 +121,7 @@ class TrainingPipeline:
         print(f"\n  RF pipeline done in {elapsed:.1f}s")
         return results
 
-    def run_ae_phase1(self) -> None:
+    def run_ae_phase1(self) -> dict:
         """Phase 1: pretrain LSTM-AE on NSL-KDD normal flows."""
         print("\n" + "="*60)
         print("  STAGE: LSTM-AE Phase 1 — NSL-KDD Pretrain")
@@ -145,7 +145,7 @@ class TrainingPipeline:
         print(f"\n  AE Phase 1 done in {elapsed:.1f}s  threshold={trainer.threshold:.6f}")
         return {"threshold": round(trainer.threshold, 6), "elapsed_s": round(elapsed, 1)}
 
-    def run_ae_phase2(self) -> None:
+    def run_ae_phase2(self) -> dict:
         """Phase 2: fine-tune LSTM-AE on CIC-IDS2017 benign flows."""
         print("\n" + "="*60)
         print("  STAGE: LSTM-AE Phase 2 — CIC-IDS2017 Fine-tune")

@@ -26,7 +26,7 @@ async def explain_flow(req: FlowRequest):
 
     return ExplainResponse(
         flow_id=str(uuid.uuid4()),
-        rf_shap=rf_imp,
+        rf_importance=rf_imp,
         ae_recon_error=ae_errors,
         natural_language=nl,
     )

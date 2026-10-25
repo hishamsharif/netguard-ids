@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
 # NetGuard IDS — Setup Script
-# Usage: bash setup.sh [--docker-only | --local-only | --skip-pg]
+# Usage: bash setup.sh [--docker-only | --local-only | --with-pg]
 #
 # What it does:
 #   1. Verify / install Miniconda
 #   2. Create/update the dl_env conda environment
 #   3. Install Python dependencies
-#   4. Optionally set up PostgreSQL (local dev)
-#   5. Build Docker images (unless --local-only)
+#   4. Build Docker images (unless --local-only)
+#   5. Create .env from template if missing (default: SQLite)
+#   6. Create required runtime directories
+#   (Optional: --with-pg also sets up local PostgreSQL — future extension FE-002)
 #   6. Create .env from template if missing
 #   7. Create required runtime directories
 # =============================================================================
@@ -84,7 +86,7 @@ print('  All key imports verified')
 ok "Python deps installed"
 
 # =============================================================================
-# 4. PostgreSQL (local dev) — skip if --docker-only or --skip-pg
+# 4. PostgreSQL (local dev) — opt-in via --with-pg (future extension FE-002)
 # =============================================================================
 if ! $DOCKER_ONLY && $WITH_PG; then
   step "PostgreSQL (local dev)"
@@ -180,10 +182,12 @@ APP_HOST=0.0.0.0
 APP_PORT=8000
 
 # ── Database ─────────────────────────────────────────────────────────────────
-# Local dev (SQLite — no setup required):
-# DATABASE_URL=sqlite+aiosqlite:///./netguard_dev.db
-# Local dev (PostgreSQL — run setup.sh to create the user/DB):
-DATABASE_URL=postgresql+asyncpg://netguard:netguard_dev@127.0.0.1:5432/netguard
+# Local dev default — SQLite (no setup required, auto-created on startup):
+DATABASE_URL=sqlite+aiosqlite:///./netguard_dev.db
+# Docker — docker-compose.yml overrides this automatically (no edit needed):
+# DATABASE_URL=postgresql+asyncpg://netguard:netguard_dev@db:5432/netguard
+# Local PostgreSQL (future extension FE-002, requires: bash setup.sh --with-pg):
+# DATABASE_URL=postgresql+asyncpg://netguard:netguard_dev@127.0.0.1:5432/netguard
 
 # ── Models ───────────────────────────────────────────────────────────────────
 RF_MODEL_PATH=models/rf_cicids.joblib

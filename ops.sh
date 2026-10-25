@@ -13,7 +13,7 @@
 #   db      start|stop|status   Manage the PostgreSQL service
 #
 # Docker services: db  api  ui  mcp
-# Local services:  db  api  mcp
+# Local services:  api  mcp  (SQLite DB is a file — no service needed)
 # =============================================================================
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -184,13 +184,7 @@ local_status() {
   echo ""
   echo "  Service      Status           PID     Endpoint"
   echo "  ─────────────────────────────────────────────────────"
-
-  # PostgreSQL
-  if pg_isready -q -h 127.0.0.1 -p 5432 2>/dev/null; then
-    printf "  %-12s ${GREEN}%-16s${NC} %-7s %s\n" "db" "running" "-" ":5432"
-  else
-    printf "  %-12s ${YELLOW}%-16s${NC} %-7s %s\n" "db" "stopped" "-" ""
-  fi
+  echo "  (local mode: database = SQLite file, no service)"
 
   # API
   if _is_running "$API_PID_FILE"; then
@@ -270,7 +264,7 @@ case "$COMMAND" in
   start)
     if $DOCKER_MODE; then docker_start
     else
-      local_db_start
+      # Local mode uses SQLite — no DB service to start
       local_api_start
       local_mcp_start
       local_status

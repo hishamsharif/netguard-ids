@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
 
-  # ── PostgreSQL DW ─────────────────────────────────────────────────────────────
+  # ── PostgreSQL (operational DB) ───────────────────────────────────────────────
   db:
     image: postgres:16-alpine
     container_name: netguard-db

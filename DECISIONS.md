@@ -40,7 +40,9 @@ Must remain in sync.
 `tests/conftest.py` `pytest_configure` override to avoid requiring a running PG instance in CI.  
 **Rationale:** PostgreSQL supports concurrent writes from multiple API workers, proper JSONB for
 feature vectors in future, and row-level locking needed for a real SOC deployment.  
-**Status:** Implemented. DB URL in `.env`; tables auto-created on startup via `init_db()`.
+**Status:** Superseded by D-010. SQLite is now the local dev default; PostgreSQL runs only in
+Docker (`docker-compose.yml` overrides `DATABASE_URL`). Local PostgreSQL setup is opt-in via
+`bash setup.sh --with-pg` (future extension FE-002). See D-010 for current state.
 
 ### D-005 · FeatureLog + feedback-label bridge
 **Decision:** Store preprocessed (scaled + clipped) feature vectors in `feature_log` alongside each

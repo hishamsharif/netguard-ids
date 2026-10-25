@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NetGuard IDS — SOC Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.5/cdn.min.js"></script>
+  <link rel="stylesheet" href="/static/css/dashboard.css" />
+</head>
+<body x-data="dashboard()" x-init="init()">
+
+  <header>
+    <h1>NetGuard IDS</h1>
+    <div class="header-right">
+      <span class="badge" :class="connected ? 'badge-live' : 'badge-off'">
+        <span x-text="connected ? 'LIVE' : 'OFFLINE'"></span>
+      </span>
+      <button @click="toggleReplay()">
+        <span x-text="replaying ? '⏸ Pause' : '▶ Replay'"></span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <!-- KPI strip -->
+    <section class="kpi-strip">
+      <div class="kpi">
+        <span class="kpi-label">Total Alerts</span>
+        <span class="kpi-value" x-text="metrics.total_alerts ?? '—'"></span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Precision</span>
+        <span class="kpi-value" x-text="metrics.precision != null ? (metrics.precision*100).toFixed(1)+'%' : '—'"></span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Recall</span>
+        <span class="kpi-value" x-text="metrics.recall != null ? (metrics.recall*100).toFixed(1)+'%' : '—'"></span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">F1</span>
+        <span class="kpi-value" x-text="metrics.f1 != null ? (metrics.f1*100).toFixed(1)+'%' : '—'"></span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">AE Threshold</span>
+        <span class="kpi-value" x-text="metrics.ae_threshold ?? '—'"></span>
+      </div>
+    </section>
+
+    <!-- Charts row -->
+    <section class="charts-row">
+      <div class="chart-card">
+        <h2>Consensus Distribution</h2>
+        <canvas id="consensusChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>AE Score Timeline</h2>
+        <canvas id="timelineChart"></canvas>
+      </div>
+    </section>
+
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      <button class="tab-btn" :class="activeTab === 'alerts' ? 'active' : ''" @click="activeTab = 'alerts'">Alerts</button>
+      <button class="tab-btn" :class="activeTab === 'training' ? 'active' : ''" @click="activeTab = 'training'; loadTrainingHistory()">Training</button>
+    </div>
+
+    <!-- Alert table -->
+    <section class="alerts-section" x-show="activeTab === 'alerts'">
+      <div class="alerts-header">
+        <h2>Recent Alerts</h2>
+        <button @click="loadAlerts()">Refresh</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>RF Label</th>
+            <th>Confidence</th>
+            <th>AE Score</th>
+            <th>Consensus</th>
+            <th>Severity</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="alert in alerts" :key="alert.id">
+            <tr :class="'row-' + alert.severity.toLowerCase()">
+              <td x-text="new Date(alert.timestamp).toLocaleTimeString()"></td>
+              <td x-text="alert.rf_label"></td>
+              <td x-text="(alert.rf_conf * 100).toFixed(1) + '%'"></td>
+              <td x-text="alert.ae_score.toFixed(4)"></td>
+              <td><span class="tag" :class="'tag-' + alert.consensus.toLowerCase()" x-text="alert.consensus"></span></td>
+              <td x-text="alert.severity"></td>
+              <td>
+                <button class="btn-sm" @click="selectAlert(alert)">Explain</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Training panel -->
+    <section class="alerts-section" x-show="activeTab === 'training'">
+      <div class="alerts-header">
+        <h2>ML/DL Training</h2>
+        <button @click="loadTrainingHistory()">Refresh History</button>
+      </div>
+
+      <!-- Controls -->
+      <div class="training-controls">
+        <label>Stage
+          <select x-model="training.stage" :disabled="training.running">
+            <option value="rf">Random Forest</option>
+            <option value="ae1">LSTM-AE Phase 1 (NSL-KDD pretrain)</option>
+            <option value="ae2">LSTM-AE Phase 2 (CIC-IDS2017 fine-tune)</option>
+            <option value="all" selected>All stages</option>
+          </select>
+        </label>
+        <label>Data source
+          <select x-model="training.dataSource" :disabled="training.running">
+            <option value="csv">CSV files</option>
+            <option value="db" disabled>Database (future)</option>
+          </select>
+        </label>
+        <button class="btn-train" @click="startTraining()" :disabled="training.running">
+          <span x-show="!training.running">▶ Start Training</span>
+          <span x-show="training.running">⏳ Training…</span>
+        </button>
+      </div>
+
+      <!-- Current run status -->
+      <template x-if="training.currentRun">
+        <div class="training-status-card">
+          <strong>Run #<span x-text="training.currentRun.id"></span></strong>
+          <span class="tag" :class="trainingStatusClass(training.currentRun.status)" x-text="training.currentRun.status.toUpperCase()"></span>
+          <span x-text="'Stage: ' + training.currentRun.stage.toUpperCase()"></span>
+          <template x-if="training.currentRun.error">
+            <p class="error-msg" x-text="training.currentRun.error"></p>
+          </template>
+          <template x-if="training.currentRun.metrics">
+            <pre class="metrics-pre" x-text="JSON.stringify(training.currentRun.metrics, null, 2)"></pre>
+          </template>
+        </div>
+      </template>
+
+      <!-- History table -->
+      <h3 style="margin-top:1.5rem">Training History</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Stage</th>
+            <th>Status</th>
+            <th>Source</th>
+            <th>Started</th>
+            <th>Duration</th>
+            <th>Metrics</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="run in training.history" :key="run.id">
+            <tr>
+              <td x-text="run.id"></td>
+              <td x-text="run.stage.toUpperCase()"></td>
+              <td><span class="tag" :class="trainingStatusClass(run.status)" x-text="run.status.toUpperCase()"></span></td>
+              <td x-text="run.data_source"></td>
+              <td x-text="run.started_at ? new Date(run.started_at).toLocaleString() : '—'"></td>
+              <td x-text="run.started_at && run.completed_at
+                ? Math.round((new Date(run.completed_at) - new Date(run.started_at)) / 1000) + 's'
+                : run.status === 'running' ? 'running…' : '—'"></td>
+              <td>
+                <template x-if="run.metrics">
+                  <span x-text="Object.entries(run.metrics).map(([k,v]) => k + ':' + (v.macro_f1 ?? v.threshold ?? '✓')).join(' | ')"></span>
+                </template>
+                <template x-if="!run.metrics">—</template>
+              </td>
+            </tr>
+          </template>
+          <template x-if="training.history.length === 0">
+            <tr><td colspan="7" style="text-align:center;color:var(--text-muted)">No training runs yet</td></tr>
+          </template>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- Explain panel -->
+  <div class="side-panel" :class="selectedAlert ? 'open' : ''">
+    <button class="close-btn" @click="selectedAlert = null">✕</button>
+    <template x-if="selectedAlert">
+      <div>
+        <h3>Explanation — Alert #<span x-text="selectedAlert.id"></span></h3>
+        <p x-text="explanation.natural_language"></p>
+        <h4>Top SHAP Features (RF)</h4>
+        <canvas id="shapChart"></canvas>
+      </div>
+    </template>
+  </div>
+
+  <script src="/static/js/dashboard.js"></script>
+  <script src="/static/js/charts.js"></script>
+</body>
+</html>

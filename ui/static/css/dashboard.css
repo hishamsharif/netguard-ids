@@ -1,0 +1,250 @@
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --border: #2a2d3a;
+  --text: #e2e8f0;
+  --text-muted: #64748b;
+  --accent: #3b82f6;
+  --safe: #22c55e;
+  --known: #f59e0b;
+  --confirmed: #ef4444;
+  --zero-day: #a855f7;
+  --critical: #ef4444;
+  --high: #f97316;
+  --medium: #f59e0b;
+  --low: #22c55e;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 14px;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+header h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: 0.05em; }
+
+.header-right { display: flex; gap: 12px; align-items: center; }
+
+.badge {
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+.badge-live { background: #16a34a33; color: var(--safe); border: 1px solid var(--safe); }
+.badge-off  { background: #64748b22; color: var(--text-muted); border: 1px solid var(--border); }
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+button:hover { opacity: 0.85; }
+.btn-sm { padding: 3px 8px; font-size: 12px; }
+
+main { padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+
+.kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kpi-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.kpi-value { font-size: 1.6rem; font-weight: 700; }
+
+.charts-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 16px;
+}
+
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+}
+.chart-card h2 { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+.chart-card canvas { max-height: 220px; }
+
+.alerts-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.alerts-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.alerts-header h2 { font-size: 14px; }
+
+table { width: 100%; border-collapse: collapse; }
+th {
+  padding: 10px 16px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--border);
+}
+td { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.row-critical { border-left: 3px solid var(--critical); }
+.row-high     { border-left: 3px solid var(--high); }
+.row-medium   { border-left: 3px solid var(--medium); }
+.row-low      { border-left: 3px solid var(--low); }
+
+.tag {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.tag-safe          { background: #16a34a22; color: var(--safe); }
+.tag-known_pattern { background: #d9770622; color: var(--known); }
+.tag-confirmed     { background: #dc262622; color: var(--confirmed); }
+.tag-zero_day      { background: #7c3aed22; color: var(--zero-day); }
+
+.side-panel {
+  position: fixed;
+  right: -480px;
+  top: 0;
+  width: 460px;
+  height: 100vh;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  padding: 24px;
+  overflow-y: auto;
+  transition: right 0.3s ease;
+  z-index: 100;
+}
+.side-panel.open { right: 0; }
+.close-btn { background: transparent; color: var(--text-muted); font-size: 18px; padding: 0; }
+.side-panel h3 { margin: 12px 0; }
+.side-panel h4 { margin: 16px 0 8px; color: var(--text-muted); font-size: 12px; }
+
+/* ── Tabs ──────────────────────────────────────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+}
+.tab-btn {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ── Training panel ────────────────────────────────────────────────────────── */
+.training-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 0 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.training-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.training-controls select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  min-width: 220px;
+}
+.training-controls select:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-train {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  min-width: 140px;
+}
+.btn-train:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.training-status-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.metrics-pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--safe);
+  white-space: pre-wrap;
+  width: 100%;
+  margin-top: 8px;
+}
+.error-msg {
+  color: var(--confirmed);
+  font-size: 12px;
+  width: 100%;
+  margin-top: 4px;
+}

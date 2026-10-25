@@ -66,15 +66,16 @@ NSL-KDD (39 features)          CIC-IDS2017 benign (70 features, 2.27 M rows)
   traffic                    threshold = p95 normal reconstruction error
 ```
 
-### Database tiers
+### Database
 
-| Mode | Database | Setup |
-|------|----------|-------|
-| Local dev (`ops.sh start`) | SQLite — `netguard_dev.db` | None — auto-created |
-| Docker (`ops.sh start --docker`) | PostgreSQL 16 — `netguard_pg` volume | None — auto-created |
-| Local production (`setup.sh --with-pg`) | PostgreSQL 16 | `sudo` once |
+| Mode | Database | Setup required |
+|------|----------|----------------|
+| Local dev (`ops.sh start`) | **SQLite** — `netguard_dev.db` file | None — created automatically |
+| Docker (`ops.sh start --docker`) | **PostgreSQL 16** — `netguard_pg` volume | None — created automatically |
 
-PostgreSQL DW with dataset tables is queued as FE-002 (see [`DECISIONS.md`](DECISIONS.md)).
+> **PostgreSQL for local dev** is a future extension (FE-002, [`DECISIONS.md`](DECISIONS.md)).
+> It becomes relevant once dataset tables are added to support DB-sourced training.
+> Until then, SQLite covers all operational tables (alerts, feedback, feature vectors, training runs).
 
 ---
 
@@ -117,8 +118,11 @@ bash setup.sh
 # Options:
 bash setup.sh --docker-only   # skip conda/pip, just build Docker images
 bash setup.sh --local-only    # skip Docker build
-bash setup.sh --with-pg       # also set up PostgreSQL locally (requires sudo)
 ```
+
+> **PostgreSQL local setup** (`--with-pg`) is a future extension (FE-002).
+> It becomes relevant once DB-sourced training datasets are supported.
+> The default stack uses SQLite locally and PostgreSQL automatically in Docker.
 
 What `setup.sh` does:
 
@@ -184,12 +188,12 @@ you do not need to change `.env` when switching between local and Docker.
 # Local dev — SQLite (default, no setup needed)
 DATABASE_URL=sqlite+aiosqlite:///./netguard_dev.db
 
-# Local PostgreSQL (after running: bash setup.sh --with-pg)
-DATABASE_URL=postgresql+asyncpg://netguard:netguard_dev@127.0.0.1:5432/netguard
-
-# Docker internal (set automatically by docker-compose.yml)
+# Docker internal (set automatically by docker-compose.yml — no manual change needed)
 DATABASE_URL=postgresql+asyncpg://netguard:netguard_dev@db:5432/netguard
 ```
+
+> **Local PostgreSQL** is a future extension (FE-002, [`DECISIONS.md`](DECISIONS.md)).
+> Docker mode handles PostgreSQL automatically — no `.env` edit required.
 
 > **Note:** Tables are created automatically on first startup via `init_db()`.
 > You never need to run migrations manually.
@@ -204,7 +208,7 @@ DATABASE_URL=postgresql+asyncpg://netguard:netguard_dev@db:5432/netguard
 bash ops.sh start
 ```
 
-Starts: PostgreSQL (if running), API on `:8000`, MCP on `:8001`.
+Starts: API on `:8000`, MCP on `:8001`. Database is SQLite (`netguard_dev.db`) — no service needed.
 
 | Service | URL / endpoint |
 |---------|---------------|
@@ -275,11 +279,12 @@ Example local output:
 ```
   Service      Status           PID     Endpoint
   ─────────────────────────────────────────────────────
-  db           running          -       :5432
   api          running          18432   http://localhost:8000
                health OK
   mcp          running          18433   localhost:8001
 ```
+
+> Local mode uses SQLite — there is no `db` service to start or check.
 
 ### Logs
 
@@ -292,10 +297,13 @@ bash ops.sh logs --docker api      # tail api container log only
 
 Local log files: `logs/api.log`, `logs/mcp.log`
 
-### Database
+### Database (Docker / future PostgreSQL only)
+
+> Local mode uses SQLite — no database service to manage.
+> The `db` subcommands apply when using Docker mode or, in future, local PostgreSQL (FE-002).
 
 ```bash
-bash ops.sh db start               # start local PostgreSQL service
+bash ops.sh db start               # start local PostgreSQL service (future: --with-pg)
 bash ops.sh db stop                # stop local PostgreSQL service
 bash ops.sh db status              # check if PostgreSQL is accepting connections
 ```

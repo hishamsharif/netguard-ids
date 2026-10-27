@@ -1,6 +1,33 @@
-const CSV_HEADER = "Destination Port,Flow Duration,Total Fwd Packets,Total Backward Packets,Total Length of Fwd Packets,Total Length of Bwd Packets,Fwd Packet Length Max,Fwd Packet Length Min,Fwd Packet Length Mean,Fwd Packet Length Std,Bwd Packet Length Max,Bwd Packet Length Min,Bwd Packet Length Mean,Bwd Packet Length Std,Flow Bytes/s,Flow Packets/s,Flow IAT Mean,Flow IAT Std,Flow IAT Max,Flow IAT Min";
-const BENIGN_ROW  = "443,50000,10,8,500,400,100,20,50.0,15.0,80,10,50.0,12.0,10000.0,200.0,5000.0,1000.0,10000,100";
-const ATTACK_ROW  = "22,100,500,0,0,0,0,0,0.0,0.0,0,0,0.0,0.0,0.0,5000000.0,0.2,0.0,1,0";
+// 42 required features (RF Gini importance > 1%)
+const REQUIRED_FEATURES = [
+  "Destination Port","Subflow Bwd Bytes","Init_Win_bytes_backward","Fwd Packet Length Max",
+  "Flow IAT Mean","Subflow Bwd Packets","Min Packet Length","Flow IAT Std","Average Packet Size",
+  "Flow IAT Max","Bwd Packet Length Mean","Bwd Packet Length Max","Subflow Fwd Bytes",
+  "Total Length of Bwd Packets","Fwd Packet Length Std","Fwd IAT Mean","Bwd Packets/s",
+  "Total Length of Fwd Packets","Fwd Header Length.1","Bwd Packet Length Min","Fwd IAT Total",
+  "Flow Duration","Bwd URG Flags","Fwd URG Flags","ECE Flag Count","Down/Up Ratio","Fwd IAT Max",
+  "Fwd Packet Length Mean","Fwd IAT Std","Bwd Header Length","Max Packet Length","Flow Bytes/s",
+  "Packet Length Mean","Avg Fwd Segment Size","Subflow Fwd Packets","Bwd Packet Length Std",
+  "Fwd IAT Min","Total Backward Packets","Total Fwd Packets","Flow IAT Min","Active Std",
+  "Init_Win_bytes_forward"
+];
+// 28 optional features (Gini <= 1%, median-imputed if absent)
+const OPTIONAL_FEATURES = [
+  "Bwd IAT Mean","Flow Packets/s","Fwd Header Length","Avg Bwd Segment Size","Bwd IAT Total",
+  "Bwd IAT Min","Idle Std","Bwd IAT Std","Active Max","Fwd Packets/s","SYN Flag Count",
+  "Idle Mean","act_data_pkt_fwd","Bwd IAT Max","RST Flag Count","Fwd Packet Length Min",
+  "PSH Flag Count","CWE Flag Count","Active Mean","Fwd PSH Flags","Packet Length Variance",
+  "min_seg_size_forward","Active Min","Packet Length Std","ACK Flag Count","Bwd PSH Flags",
+  "FIN Flag Count","URG Flag Count",
+  "Idle Max","Idle Min"
+];
+const ALL_FEATURES = [...REQUIRED_FEATURES, ...OPTIONAL_FEATURES];
+
+const CSV_HEADER = ALL_FEATURES.join(",");
+
+// Sample rows: required columns only (optional columns are median-imputed by the server)
+const BENIGN_ROW  = "443,13200,5,4,265,280,65,20,53.0,16.0,80,10,70.0,14.0,10500,4,1320.0,850.0,6000,100,5400,13200,0,0,0,1,4000,53.0,1400.0,180,90,20113.6,71.0,53.0,5,14.0,100,4,5,100,0.0,65536,65535,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0";
+const ATTACK_ROW  = "22,100,500,0,0,0,0,0,0.0,0.0,0,0,0.0,0.0,0,0,0.2,0.0,1,0,50,100,0,0,0,0,1,0.0,0.0,0,0,0.0,0.0,0.0,500,0.0,0,0,500,0,0.0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0";
 
 function dashboard() {
   return {
@@ -11,7 +38,7 @@ function dashboard() {
     selectedAlert: null,
     explanation: {},
     ws: null,
-    activeTab: 'infer',
+    activeTab: 'about',
 
     feedbackState: {},
 
@@ -37,6 +64,9 @@ function dashboard() {
       dragOver: false,
     },
 
+    // Feature importance data for Models & Training tab
+    featureGroups: { required: [], optional: [] },
+
     // Training panel state
     training: {
       stage: 'all',
@@ -48,10 +78,52 @@ function dashboard() {
     },
 
     async init() {
-      await this.loadAlerts();
       await this.loadMetrics();
       await this.loadModelVersions();
+      await this.loadFeatureGroups();
       setInterval(() => this.loadMetrics(), 30000);
+    },
+
+    // Switch tab and lazy-load relevant data
+    switchTab(tab) {
+      this.activeTab = tab;
+      if (tab === 'training') {
+        this.loadTrainingHistory();
+        this.loadModelVersions();
+      } else if (tab === 'infer') {
+        this.loadAlerts();
+      }
+    },
+
+    // Load feature importance groups from model file
+    async loadFeatureGroups() {
+      try {
+        const res = await fetch('/models/feature-importance');
+        if (!res.ok) throw new Error('no endpoint');
+        const data = await res.json();
+        this.featureGroups = data;
+      } catch (_) {
+        // Fall back to static lists with uniform importance placeholder
+        this.featureGroups = {
+          required: REQUIRED_FEATURES.map((name, i) => ({ name, importance: 0.025 - i * 0.0005 })),
+          optional: OPTIONAL_FEATURES.map((name, i) => ({ name, importance: 0.009 - i * 0.0003 })),
+        };
+      }
+    },
+
+    // Format batch 422 error (detail may be object or string)
+    formatBatchError(err) {
+      if (!err) return '';
+      if (typeof err === 'string') return err;
+      if (typeof err === 'object') {
+        if (err.message) {
+          const missing = err.missing_required_columns;
+          if (missing?.length) return err.message + '\n\nMissing: ' + missing.join(', ');
+          return err.message;
+        }
+        return JSON.stringify(err, null, 2);
+      }
+      return String(err);
     },
 
     async loadAlerts() {

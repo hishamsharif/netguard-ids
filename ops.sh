@@ -141,13 +141,25 @@ local_api_start() {
 }
 
 local_api_stop() {
+  # Kill the conda wrapper (if tracked)
   if _is_running "$API_PID_FILE"; then
     info "Stopping API (PID $(cat "$API_PID_FILE"))..."
     kill "$(cat "$API_PID_FILE")" 2>/dev/null || true
     rm -f "$API_PID_FILE"
-    ok "API stopped"
   else
-    warn "API is not running"
+    info "No PID file — checking port 8000 directly..."
+  fi
+  # Also kill the actual uvicorn process listening on :8000 (conda run detaches it)
+  local port_pid
+  port_pid=$(lsof -ti :8000 2>/dev/null || true)
+  if [ -n "$port_pid" ]; then
+    kill "$port_pid" 2>/dev/null || true
+    sleep 1
+  fi
+  if lsof -i :8000 &>/dev/null; then
+    warn "Port 8000 still in use after stop"
+  else
+    ok "API stopped"
   fi
 }
 

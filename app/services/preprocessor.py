@@ -26,11 +26,29 @@ class Preprocessor:
             self.selector = joblib.load(settings.selector_path)
         self._loaded = True
 
+    @property
+    def feature_names(self) -> list[str]:
+        return self._feature_names or []
+
+    @property
+    def training_medians(self) -> dict[str, float]:
+        """Per-feature training medians from RobustScaler.center_ (for optional feature imputation)."""
+        if not self._loaded or self.scaler is None:
+            return {}
+        try:
+            sc = getattr(self.scaler, "named_steps", {}).get("scaler") or self.scaler
+            if hasattr(sc, "center_") and self._feature_names:
+                return dict(zip(self._feature_names, sc.center_.tolist()))
+        except Exception:
+            pass
+        return {}
+
     def transform(self, features: dict[str, float]) -> np.ndarray:
         """Dict of raw CIC-IDS2017 features → scaled numpy array [1, n_features]."""
         if not self._loaded:
             raise RuntimeError("Preprocessor not loaded — call load() first")
-        ordered = [features.get(f, 0.0) for f in self._feature_names]
+        medians = self.training_medians
+        ordered = [features.get(f, medians.get(f, 0.0)) for f in self._feature_names]
         x = np.array(ordered, dtype=np.float32).reshape(1, -1)
         x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         x = self.scaler.transform(x)

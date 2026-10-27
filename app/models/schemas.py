@@ -140,6 +140,8 @@ class MetricsResponse(BaseModel):
     recall: Optional[float]
     f1: Optional[float]
     false_positive_rate: Optional[float]
+    false_alarm_ratio: Optional[float] = None   # FAR = FP/(FP+TP) — false alert rate
+    attack_miss_ratio: Optional[float] = None   # AMR = FN/(FN+TP) — missed attack rate
     total_alerts: int
     feedback_count: int
     ae_threshold: float

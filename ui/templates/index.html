@@ -11,390 +11,194 @@
 <body x-data="dashboard()" x-init="init()">
 
   <header>
-    <h1>NetGuard IDS</h1>
+    <div class="header-left">
+      <h1>NetGuard IDS</h1>
+      <span class="header-sub">Network Intrusion Detection · RF + LSTM-AE · CIC-IDS2017</span>
+    </div>
     <div class="header-right">
       <span class="badge" :class="connected ? 'badge-live' : 'badge-off'">
         <span x-text="connected ? 'LIVE' : 'OFFLINE'"></span>
       </span>
-      <button @click="toggleReplay()">
-        <span x-text="replaying ? '⏸ Pause' : '▶ Replay'"></span>
-      </button>
     </div>
   </header>
 
   <main>
 
-    <!-- ── KPI strip ──────────────────────────────────────────────────────── -->
-    <section class="kpi-strip">
-      <div class="kpi">
-        <span class="kpi-label">Total Flows Processed</span>
-        <span class="kpi-value" x-text="metrics.total_alerts ?? '—'"></span>
-        <span class="kpi-sub">All flows ingested since service start</span>
-      </div>
-      <div class="kpi">
-        <span class="kpi-label">Precision</span>
-        <span class="kpi-value" x-text="metrics.precision != null ? (metrics.precision*100).toFixed(1)+'%' : '—'"></span>
-        <span class="kpi-sub" x-show="metrics.feedback_count === 0 && metrics.precision != null">Training baseline — submit feedback to get live metric</span>
-        <span class="kpi-sub" x-show="metrics.feedback_count > 0">Live · Of raised alerts, % were true attacks</span>
-        <span class="kpi-sub" x-show="metrics.precision == null">Requires analyst feedback (TP/FP/FN)</span>
-      </div>
-      <div class="kpi">
-        <span class="kpi-label">Recall</span>
-        <span class="kpi-value" x-text="metrics.recall != null ? (metrics.recall*100).toFixed(1)+'%' : '—'"></span>
-        <span class="kpi-sub" x-show="metrics.feedback_count === 0 && metrics.recall != null">Training baseline — % of attacks caught</span>
-        <span class="kpi-sub" x-show="metrics.feedback_count > 0">Live · Of all attacks, % were detected</span>
-        <span class="kpi-sub" x-show="metrics.recall == null">Requires analyst feedback (TP/FN)</span>
-      </div>
-      <div class="kpi">
-        <span class="kpi-label">F1 Score</span>
-        <span class="kpi-value" x-text="metrics.f1 != null ? (metrics.f1*100).toFixed(1)+'%' : '—'"></span>
-        <span class="kpi-sub" x-show="metrics.feedback_count === 0 && metrics.f1 != null">Training baseline — harmonic mean of P &amp; R</span>
-        <span class="kpi-sub" x-show="metrics.feedback_count > 0">Live · Balance of precision &amp; recall</span>
-        <span class="kpi-sub" x-show="metrics.f1 == null">Will appear once feedback is submitted</span>
-      </div>
-      <div class="kpi">
-        <span class="kpi-label">AE Anomaly Threshold</span>
-        <span class="kpi-value" x-text="metrics.ae_threshold != null ? metrics.ae_threshold.toFixed(6) : '—'"></span>
-        <span class="kpi-sub">Recon. error above this = anomaly (p95 of CIC-IDS2017 training)</span>
-      </div>
-    </section>
-
-    <!-- ── Charts row ─────────────────────────────────────────────────────── -->
-    <section class="charts-row">
-      <div class="chart-card">
-        <h2>Consensus Distribution</h2>
-        <p class="chart-sub">3-stage pipeline verdict breakdown across all processed flows</p>
-        <canvas id="consensusChart"></canvas>
-      </div>
-      <div class="chart-card">
-        <h2>AE Reconstruction Error — Timeline</h2>
-        <p class="chart-sub">Points above the dashed threshold line were flagged as anomalies by the LSTM Autoencoder</p>
-        <canvas id="timelineChart"></canvas>
-      </div>
-    </section>
-
-    <!-- ── Tab bar (2 tabs) ───────────────────────────────────────────────── -->
+    <!-- ── Tab bar ────────────────────────────────────────────────────────── -->
     <div class="tab-bar">
-      <button class="tab-btn" :class="activeTab==='infer'    ? 'active':''" @click="activeTab='infer'">Inference</button>
-      <button class="tab-btn" :class="activeTab==='training' ? 'active':''" @click="activeTab='training'; loadTrainingHistory(); loadModelVersions()">Training &amp; Models</button>
+      <button class="tab-btn" :class="activeTab==='about'    ? 'active':''" @click="activeTab='about'">About</button>
+      <button class="tab-btn" :class="activeTab==='training' ? 'active':''" @click="switchTab('training')">Models &amp; Training</button>
+      <button class="tab-btn" :class="activeTab==='infer'    ? 'active':''" @click="switchTab('infer')">Inference</button>
     </div>
 
-    <!-- ══════════════════ INFERENCE TAB ══════════════════════════════════ -->
-    <section class="alerts-section" x-show="activeTab==='infer'">
+    <!-- ══════════════════ ABOUT TAB ══════════════════════════════════════ -->
+    <section class="tab-section" x-show="activeTab==='about'">
 
-      <!-- Tab header + mode toggle -->
-      <div class="alerts-header">
-        <div>
-          <h2>Inference</h2>
-          <p class="section-sub">Submit network flow logs as CSV for anomaly detection. Each row passes through: <strong>Rule Engine</strong> → <strong>Random Forest</strong> → <strong>LSTM Autoencoder</strong> → Consensus verdict.</p>
-        </div>
-        <div class="seg-ctrl">
-          <button class="seg-btn" :class="inferMode==='paste'  ? 'seg-active':''" @click="inferMode='paste'">Paste CSV</button>
-          <button class="seg-btn" :class="inferMode==='upload' ? 'seg-active':''" @click="inferMode='upload'">Upload CSV File</button>
-        </div>
-      </div>
+      <div class="about-grid">
 
-      <!-- CSV format hint (collapsible) -->
-      <details class="csv-hint-block">
-        <summary class="csv-hint-summary">
-          Expected CSV Format — 20 CIC-IDS2017 features
-          <span class="csv-hint-badge">expand</span>
-        </summary>
-        <div class="csv-hint-inner">
-          <p class="section-sub" style="margin-bottom:8px">Column headers must match exactly (case-sensitive). Each data row represents one network flow. Use the presets to generate valid sample rows.</p>
-          <pre class="csv-hint-pre">Destination Port,Flow Duration,Total Fwd Packets,Total Backward Packets,Total Length of Fwd Packets,Total Length of Bwd Packets,Fwd Packet Length Max,Fwd Packet Length Min,Fwd Packet Length Mean,Fwd Packet Length Std,Bwd Packet Length Max,Bwd Packet Length Min,Bwd Packet Length Mean,Bwd Packet Length Std,Flow Bytes/s,Flow Packets/s,Flow IAT Mean,Flow IAT Std,Flow IAT Max,Flow IAT Min</pre>
-          <p class="section-sub" style="margin-top:6px">All values are numeric. Missing or non-numeric cells are skipped gracefully.</p>
-        </div>
-      </details>
-
-      <!-- ── Paste mode ─────────────────────────────────────────────────── -->
-      <div x-show="inferMode==='paste'" style="padding:0 20px 0">
-        <div class="infer-presets">
-          <span class="predict-label">Sample data:</span>
-          <button class="btn-preset" @click="loadPreset('benign')">🟢 Benign (HTTPS port 443)</button>
-          <button class="btn-preset btn-preset-attack" @click="loadPreset('attack')">🔴 Attack (SSH port-scan)</button>
-        </div>
-        <label class="predict-label" style="display:block;margin-bottom:6px">Paste CSV — header row + one or more data rows</label>
-        <textarea class="predict-textarea" x-model="infer.csvText" rows="8" spellcheck="false"
-          placeholder="Destination Port,Flow Duration,...&#10;443,50000,10,8,..."></textarea>
-      </div>
-
-      <!-- ── Upload mode ────────────────────────────────────────────────── -->
-      <div x-show="inferMode==='upload'" style="padding:20px 20px 0">
-        <div class="drop-zone"
-             :class="batch.dragOver ? 'drop-zone-active' : ''"
-             @dragover.prevent="batch.dragOver=true"
-             @dragleave.prevent="batch.dragOver=false"
-             @drop="handleDrop($event)">
-          <div class="drop-zone-inner">
-            <div class="drop-icon">📂</div>
-            <div class="drop-text">Drag &amp; drop a .csv file here</div>
-            <div class="drop-sub">or</div>
-            <label class="btn-upload">
-              Browse…
-              <input type="file" accept=".csv" style="display:none" @change="handleFileInput($event)" />
-            </label>
-            <div class="drop-hint">Column headers: CIC-IDS2017 feature names (see format above)</div>
+        <!-- System overview -->
+        <div class="about-card about-card-wide">
+          <h2>System Overview</h2>
+          <p class="section-sub" style="margin-bottom:14px">
+            NetGuard IDS is an anomaly-based Network Intrusion Detection System using a 3-stage ensemble pipeline trained on CIC-IDS2017. It is designed for SOC analyst workflows: submit flow logs → get classified verdicts → label results → feed incremental retraining.
+          </p>
+          <div class="pipeline-flow">
+            <div class="pipeline-stage pipeline-stage-about">
+              <div class="stage-label">Stage 1</div>
+              <div class="stage-title">Rule Engine</div>
+              <div class="stage-hint">10 deterministic rules: high-risk ports, SYN flood, PSH/URG anomalies</div>
+              <div class="stage-outcome stage-benign">BENIGN → fast-path skip</div>
+              <div class="stage-outcome stage-suspicious">SUSPICIOUS → pass to Stage 2</div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-stage pipeline-stage-about">
+              <div class="stage-label">Stage 2</div>
+              <div class="stage-title">Random Forest</div>
+              <div class="stage-hint">200 trees · 72 CIC-IDS2017 features · Gini importance · RobustScaler</div>
+              <div class="stage-outcome" style="color:var(--accent)">Multi-class label + confidence</div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-stage pipeline-stage-about">
+              <div class="stage-label">Stage 3</div>
+              <div class="stage-title">LSTM Autoencoder</div>
+              <div class="stage-hint">NSL-KDD pre-trained → CIC-IDS2017 fine-tuned · Recon error vs p95 threshold</div>
+              <div class="stage-outcome stage-suspicious">Score &gt; threshold → ANOMALY</div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-stage pipeline-stage-about pipeline-stage-consensus">
+              <div class="stage-label">Verdict</div>
+              <div class="stage-title">Consensus</div>
+              <div class="stage-hint">Weighted voting across all 3 stages</div>
+              <div style="display:flex;flex-direction:column;gap:3px;margin-top:6px">
+                <span class="tag tag-safe" style="font-size:10px">SAFE</span>
+                <span class="tag tag-known_pattern" style="font-size:10px">KNOWN_PATTERN</span>
+                <span class="tag tag-confirmed" style="font-size:10px">CONFIRMED</span>
+                <span class="tag tag-zero_day" style="font-size:10px">ZERO_DAY</span>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- ── Advanced Options (shown for both modes) ───────────────────── -->
-      <details class="adv-options" style="margin:14px 20px 0">
-        <summary class="adv-options-summary">⚙ Advanced Options — Model Version Override</summary>
-        <div class="adv-options-body">
-          <label>RF Model Version
-            <select x-model="infer.rfVersionId">
-              <template x-for="v in rfVersions()" :key="v.id">
-                <option :value="v.id"
-                        x-text="v.version_tag + (v.is_active_rf ? ' ● active' : '')"></option>
-              </template>
-              <template x-if="rfVersions().length === 0">
-                <option disabled>No RF versions available</option>
-              </template>
-            </select>
-          </label>
-          <label>AE (LSTM) Version
-            <select x-model="infer.aeVersionId">
-              <template x-for="v in aeVersions()" :key="v.id">
-                <option :value="v.id"
-                        x-text="v.version_tag + (v.is_active_ae ? ' ● active' : '')"></option>
-              </template>
-              <template x-if="aeVersions().length === 0">
-                <option disabled>No AE versions available</option>
-              </template>
-            </select>
-          </label>
-          <div style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end">
-            <button class="btn-sm" @click="applyModelVersions()">Apply</button>
-            <span class="section-sub" x-show="infer.applyMsg" x-text="infer.applyMsg"
-                  style="font-size:11px;color:var(--safe)"></span>
+        <!-- Dataset & feature info -->
+        <div class="about-card">
+          <h2>Dataset — CIC-IDS2017</h2>
+          <table class="about-table">
+            <tr><td>Raw columns</td><td><strong>79</strong> (CICFlowMeter output)</td></tr>
+            <tr><td>After preprocessing</td><td><strong>72</strong> numeric flow features</td></tr>
+            <tr><td>Required features</td><td><strong>42</strong> (RF Gini importance &gt; 1%)</td></tr>
+            <tr><td>Optional features</td><td><strong>28</strong> (≤ 1%, median-imputed if absent)</td></tr>
+            <tr><td>Dropped metadata</td><td>Timestamp, Flow ID, Source/Dest IP, Label</td></tr>
+            <tr><td>Scaler</td><td>RobustScaler (median-centred, IQR-scaled)</td></tr>
+            <tr><td>Feature selector</td><td>VarianceThreshold (removes constant cols)</td></tr>
+            <tr><td>Class distribution</td><td>85% benign · 15% attack</td></tr>
+          </table>
+        </div>
+
+        <!-- Live metrics -->
+        <div class="about-card">
+          <h2>Live System Metrics</h2>
+          <div class="about-metrics-grid">
+            <div class="about-metric">
+              <div class="about-metric-val" x-text="metrics.total_alerts ?? '—'"></div>
+              <div class="about-metric-label">Total flows processed</div>
+            </div>
+            <div class="about-metric">
+              <div class="about-metric-val" x-text="metrics.f1 != null ? (metrics.f1*100).toFixed(1)+'%' : '—'"></div>
+              <div class="about-metric-label">F1 <span x-text="metrics.feedback_count > 0 ? '(live)' : '(baseline)'"></span></div>
+            </div>
+            <div class="about-metric">
+              <div class="about-metric-val" x-text="metrics.precision != null ? (metrics.precision*100).toFixed(1)+'%' : '—'"></div>
+              <div class="about-metric-label">Precision</div>
+            </div>
+            <div class="about-metric">
+              <div class="about-metric-val" x-text="metrics.recall != null ? (metrics.recall*100).toFixed(1)+'%' : '—'"></div>
+              <div class="about-metric-label">Recall</div>
+            </div>
+            <div class="about-metric" x-show="metrics.false_alarm_ratio != null">
+              <div class="about-metric-val" x-text="(metrics.false_alarm_ratio*100).toFixed(1)+'%'"></div>
+              <div class="about-metric-label">FAR (false alerts)</div>
+            </div>
+            <div class="about-metric" x-show="metrics.attack_miss_ratio != null">
+              <div class="about-metric-val" x-text="(metrics.attack_miss_ratio*100).toFixed(1)+'%'"></div>
+              <div class="about-metric-label">AMR (missed attacks)</div>
+            </div>
+            <div class="about-metric">
+              <div class="about-metric-val" x-text="metrics.ae_threshold != null ? metrics.ae_threshold.toFixed(6) : '—'"></div>
+              <div class="about-metric-label">AE threshold (p95)</div>
+            </div>
+            <div class="about-metric">
+              <div class="about-metric-val" x-text="metrics.feedback_count ?? 0"></div>
+              <div class="about-metric-label">Analyst labels</div>
+            </div>
           </div>
-          <p class="section-sub" style="grid-column:1/-1;margin-top:2px">
-            Versions are activated in the DB immediately. Model files are reloaded on next service restart.
-            Default: latest trained version for each stage, falling back to v1.0-baseline.
+        </div>
+
+        <!-- Literature comparison -->
+        <div class="about-card about-card-wide">
+          <h2>Literature Comparison</h2>
+          <div style="overflow-x:auto">
+            <table>
+              <thead>
+                <tr><th>System / Study</th><th>Approach</th><th>F1</th><th>FAR</th><th>AMR</th><th>Dataset</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><strong>NetGuard (ours)</strong></td><td>RF + LSTM-AE + Rule Engine (3-stage)</td><td class="metric-good">88.7%</td><td>—</td><td>—</td><td>CIC-IDS2017</td></tr>
+                <tr><td>Kotwal &amp; Lanjekar (2024)</td><td>MLP (model_5_b, 20 features)</td><td class="metric-good">95.95%</td><td class="metric-good">0.92%</td><td class="metric-good">3.01%</td><td>CIC-IDS2017</td></tr>
+                <tr><td>Bandarupalli DNN</td><td>DNN 4-layer + ANOVA (36 features)</td><td>67.16% macro</td><td>—</td><td>—</td><td>CIC-IDS2017</td></tr>
+                <tr><td>EmergentMind RF+SHAP</td><td>Random Forest + SHAP</td><td class="metric-good">90.4%</td><td>—</td><td>—</td><td>CIC-IDS2017</td></tr>
+                <tr><td>HAST-IDS</td><td>CNN + LSTM spatial+temporal</td><td>—</td><td>—</td><td>—</td><td>CIC-IDS-2012</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Key techniques -->
+        <div class="about-card">
+          <h2>Techniques from Literature</h2>
+          <ul class="about-list">
+            <li><strong>Feature importance split</strong> — 42 required (RF Gini &gt;1%) + 28 optional (median-imputed). Kotwal (2024) uses XGBoost &gt;1% → 20 features.</li>
+            <li><strong>RobustScaler</strong> — handles attack-traffic outliers better than MinMaxScaler.</li>
+            <li><strong>VarianceThreshold</strong> — removes near-constant features before RF.</li>
+            <li><strong>Median imputation</strong> — missing optional features use training median, not zero.</li>
+            <li><strong>FAR &amp; AMR</strong> — operationally meaningful for SOC analysts (Kotwal 2024, Bandarupalli).</li>
+            <li><strong>Metadata exclusion</strong> — Timestamp, Flow ID, IPs dropped to prevent shortcut learning.</li>
+            <li><strong>Analyst feedback loop</strong> — TP/FP/FN labels drive incremental retraining. SMOTE on training split only.</li>
+          </ul>
+        </div>
+
+        <!-- LSTM justification -->
+        <div class="about-card">
+          <h2>Why LSTM Autoencoder?</h2>
+          <p class="section-sub" style="margin-bottom:10px">
+            The LSTM-AE treats the 72-feature vector as a 72-step sequence, learning non-linear inter-feature dependencies that a feedforward AE misses. Pre-trained on NSL-KDD then fine-tuned on CIC-IDS2017 (transfer learning). HAST-IDS (CNN+LSTM) achieves F1&nbsp;=&nbsp;0.997 on flow sequences, validating deep sequence models for NIDS.
+          </p>
+          <p class="section-sub">
+            <strong>Limitation:</strong> without true pcap-level temporal sequences the LSTM advantage over a VAE is marginal. The anomaly score (reconstruction error vs p95 threshold) is the primary AE contribution here.
           </p>
         </div>
-      </details>
 
-      <!-- ── Run button (paste mode) ───────────────────────────────────── -->
-      <div x-show="inferMode==='paste'" style="padding:14px 20px 20px">
-        <button class="btn-train" style="width:100%" @click="submitCsvPaste()" :disabled="batch.loading">
-          <span x-show="!batch.loading">▶ Run Inference</span>
-          <span x-show="batch.loading">⏳ Processing…</span>
-        </button>
-        <p x-show="batch.error" class="error-msg" style="margin-top:8px" x-text="batch.error"></p>
       </div>
 
-      <!-- Upload status / error -->
-      <div x-show="inferMode==='upload'" style="padding:10px 20px 0">
-        <div x-show="batch.loading" class="batch-status">⏳ Processing rows…</div>
-        <p x-show="batch.error && !batch.loading" class="error-msg" x-text="batch.error"></p>
-      </div>
-
-      <!-- ── Pipeline breakdown — single-row result ─────────────────────── -->
-      <template x-if="batch.result && batch.result.processed === 1 && !batch.loading">
-        <div style="padding:0 20px 16px">
-          <h3 class="result-section-head">Pipeline Breakdown — Single Flow</h3>
-          <div class="pipeline-flow">
-            <!-- Stage 1: Rule Engine -->
-            <div class="pipeline-stage">
-              <div class="stage-label">Stage 1 — Rule Engine</div>
-              <div class="stage-hint">10 deterministic rules (port, rate, flag)</div>
-              <div class="stage-verdict"
-                   :class="batch.result.results[0].rule_verdict==='SUSPICIOUS'?'stage-suspicious':'stage-benign'"
-                   x-text="batch.result.results[0].rule_verdict"></div>
-              <div x-show="batch.result.results[0].rules.length > 0" class="stage-detail">
-                Triggered: <span x-text="batch.result.results[0].rules.join(', ')"></span>
-              </div>
-              <div x-show="!batch.result.results[0].rules.length" class="stage-detail stage-muted">No rules triggered</div>
-            </div>
-            <div class="pipeline-arrow">→</div>
-            <!-- Stage 2: RF -->
-            <div class="pipeline-stage" :class="batch.result.results[0].ai_skipped ? 'stage-skipped' : ''">
-              <div class="stage-label">Stage 2 — Random Forest</div>
-              <div class="stage-hint">200 trees · CIC-IDS2017</div>
-              <template x-if="!batch.result.results[0].ai_skipped">
-                <div>
-                  <div class="stage-verdict stage-rf"
-                       x-text="batch.result.results[0].rf_label==='0'?'BENIGN':'ATTACK: '+batch.result.results[0].rf_label"></div>
-                  <div class="conf-bar-wrap">
-                    <div class="conf-bar" :style="'width:'+(batch.result.results[0].rf_conf*100).toFixed(0)+'%'"></div>
-                  </div>
-                  <div class="stage-detail" x-text="(batch.result.results[0].rf_conf*100).toFixed(1)+'% confidence'"></div>
-                </div>
-              </template>
-              <template x-if="batch.result.results[0].ai_skipped">
-                <div class="stage-muted" style="font-size:12px;margin-top:4px">Skipped — rule said BENIGN (fast path)</div>
-              </template>
-            </div>
-            <div class="pipeline-arrow">→</div>
-            <!-- Stage 3: AE -->
-            <div class="pipeline-stage" :class="batch.result.results[0].ai_skipped ? 'stage-skipped' : ''">
-              <div class="stage-label">Stage 3 — LSTM Autoencoder</div>
-              <div class="stage-hint">NSL-KDD → CIC-IDS2017 transfer</div>
-              <template x-if="!batch.result.results[0].ai_skipped">
-                <div>
-                  <div class="stage-verdict"
-                       :class="batch.result.results[0].ae_score > (metrics.ae_threshold||0) ? 'stage-suspicious' : 'stage-benign'"
-                       x-text="batch.result.results[0].ae_score > (metrics.ae_threshold||0) ? 'ANOMALY' : 'BENIGN'"></div>
-                  <div class="stage-detail">Score: <strong x-text="batch.result.results[0].ae_score.toFixed(6)"></strong></div>
-                  <div class="stage-detail stage-muted">
-                    Threshold: <span x-text="(metrics.ae_threshold||0).toFixed(6)"></span>
-                  </div>
-                </div>
-              </template>
-              <template x-if="batch.result.results[0].ai_skipped">
-                <div class="stage-muted" style="font-size:12px;margin-top:4px">Skipped — fast path</div>
-              </template>
-            </div>
-            <div class="pipeline-arrow">→</div>
-            <!-- Consensus -->
-            <div class="pipeline-stage pipeline-stage-consensus">
-              <div class="stage-label">Consensus Verdict</div>
-              <div class="stage-hint">All 3 stages combined</div>
-              <div class="stage-consensus-verdict">
-                <span class="tag" :class="consensusColorClass(batch.result.results[0].consensus)"
-                      x-text="batch.result.results[0].consensus"></span>
-              </div>
-              <div class="stage-detail" x-text="batch.result.results[0].severity + ' severity'"></div>
-            </div>
-          </div>
-          <button class="btn-train" style="margin-top:14px"
-                  @click="explainBatchRow(batch.result.results[0])">
-            🔍 Explain This Flow
-          </button>
+      <!-- Charts -->
+      <div class="charts-row" style="margin-top:16px">
+        <div class="chart-card">
+          <h2>Consensus Distribution</h2>
+          <p class="chart-sub">Verdict breakdown across all processed flows</p>
+          <canvas id="consensusChart"></canvas>
         </div>
-      </template>
-
-      <!-- ── Batch summary + per-row table ──────────────────────────────── -->
-      <template x-if="batch.result && !batch.loading">
-        <div style="padding:0 20px 16px">
-          <div class="batch-summary-cards">
-            <div class="batch-stat">
-              <div class="batch-stat-val" x-text="batch.result.total"></div>
-              <div class="batch-stat-label">Total rows</div>
-            </div>
-            <div class="batch-stat">
-              <div class="batch-stat-val" x-text="batch.result.processed"></div>
-              <div class="batch-stat-label">Processed</div>
-            </div>
-            <div class="batch-stat" x-show="batch.result.error_count > 0">
-              <div class="batch-stat-val" style="color:var(--confirmed)" x-text="batch.result.error_count"></div>
-              <div class="batch-stat-label">Parse errors</div>
-            </div>
-            <template x-for="item in batchConsensusSummary()" :key="item.label">
-              <div class="batch-stat">
-                <div class="batch-stat-val">
-                  <span class="tag" :class="'tag-'+item.label.toLowerCase()" x-text="item.count"></span>
-                </div>
-                <div class="batch-stat-label" x-text="item.label"></div>
-              </div>
-            </template>
-          </div>
-          <!-- Per-row table only when >1 row -->
-          <template x-if="batch.result.processed > 1">
-            <div>
-              <h3 class="result-section-head">Per-Row Results</h3>
-              <div style="overflow-x:auto;max-height:280px;overflow-y:auto">
-                <table>
-                  <thead>
-                    <tr><th>Row</th><th>Consensus</th><th>Severity</th><th>RF Label</th><th>RF Conf</th><th>AE Score</th><th>Rules</th><th>Explain</th></tr>
-                  </thead>
-                  <tbody>
-                    <template x-for="row in batch.result.results" :key="row.row">
-                      <tr :class="'row-'+row.severity.toLowerCase()">
-                        <td x-text="row.row"></td>
-                        <td><span class="tag" :class="'tag-'+row.consensus.toLowerCase()" x-text="row.consensus"></span></td>
-                        <td x-text="row.severity"></td>
-                        <td x-text="row.rf_label"></td>
-                        <td x-text="row.ai_skipped ? '—' : (row.rf_conf*100).toFixed(1)+'%'"></td>
-                        <td x-text="row.ai_skipped ? '—' : row.ae_score.toFixed(6)"></td>
-                        <td x-text="row.rules.length ? row.rules.join(', ') : '—'"></td>
-                        <td><button class="btn-sm" @click="explainBatchRow(row)">Explain</button></td>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </template>
+        <div class="chart-card">
+          <h2>AE Reconstruction Error</h2>
+          <p class="chart-sub">Points above the dashed threshold line were flagged as anomalies</p>
+          <canvas id="timelineChart"></canvas>
         </div>
-      </template>
+      </div>
 
-      <!-- ── Recent Inferences ──────────────────────────────────────────── -->
-      <div class="alerts-header" style="border-top:1px solid var(--border)">
-        <div>
-          <h2>Recent Inferences</h2>
-          <p class="section-sub">Last 50 flows ordered by most recent. Click <strong>Explain</strong> for full AI breakdown. Use <strong>TP / FP / FN</strong> to label — feedback feeds incremental retraining.</p>
-        </div>
-        <button @click="loadAlerts()">Refresh</button>
-      </div>
-      <div style="overflow-x:auto">
-        <table>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th title="Rule Engine — 10 deterministic rules (Stage 1)">Rules (S1)</th>
-              <th title="Random Forest label and confidence (Stage 2)">RF (S2)</th>
-              <th title="LSTM AE reconstruction error vs threshold (Stage 3)">AE Score (S3)</th>
-              <th>Consensus</th>
-              <th>Severity</th>
-              <th title="Label the inference to improve future retraining">Feedback</th>
-              <th>Explain</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template x-for="alert in alerts" :key="alert.id">
-              <tr :class="'row-' + alert.severity.toLowerCase()">
-                <td x-text="new Date(alert.timestamp).toLocaleTimeString()"></td>
-                <td>
-                  <span class="tag" :class="alert.rf_label==='SKIPPED' ? 'tag-safe' : 'tag-known_pattern'"
-                        x-text="alert.rf_label==='SKIPPED' ? 'SAFE' : 'SUSPICIOUS'"></span>
-                </td>
-                <td>
-                  <span x-show="alert.rf_label !== 'SKIPPED'"
-                        x-text="alert.rf_label + ' · ' + (alert.rf_conf*100).toFixed(1)+'%'"></span>
-                  <span x-show="alert.rf_label === 'SKIPPED'" class="text-muted">— (fast path)</span>
-                </td>
-                <td>
-                  <span x-show="alert.ae_score > 0"
-                        :style="alert.ae_score > metrics.ae_threshold ? 'color:var(--confirmed)' : ''"
-                        x-text="alert.ae_score.toFixed(4)"></span>
-                  <span x-show="alert.ae_score <= 0" class="text-muted">—</span>
-                </td>
-                <td><span class="tag" :class="'tag-'+alert.consensus.toLowerCase()" x-text="alert.consensus"></span></td>
-                <td x-text="alert.severity"></td>
-                <td>
-                  <template x-if="feedbackState[alert.id]">
-                    <span class="feedback-given" x-text="feedbackLabel(alert.id)"></span>
-                  </template>
-                  <template x-if="!feedbackState[alert.id]">
-                    <div class="feedback-btns">
-                      <button class="btn-fb btn-tp" title="True Positive — correctly flagged attack"
-                              @click="submitFeedback(alert.id, 'TRUE_POSITIVE')">✓ TP</button>
-                      <button class="btn-fb btn-fp" title="False Positive — benign traffic wrongly flagged"
-                              @click="submitFeedback(alert.id, 'FALSE_POSITIVE')">✗ FP</button>
-                      <button class="btn-fb btn-fn" title="False Negative — missed attack (escalate)"
-                              @click="submitFeedback(alert.id, 'FALSE_NEGATIVE')">? FN</button>
-                    </div>
-                  </template>
-                </td>
-                <td><button class="btn-sm" @click="selectAlert(alert)">Explain</button></td>
-              </tr>
-            </template>
-            <template x-if="alerts.length === 0">
-              <tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:24px">No flows processed yet — use Paste CSV or Upload CSV above</td></tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
     </section>
 
-    <!-- ══════════════════ TRAINING & MODELS TAB ══════════════════════════ -->
-    <section class="alerts-section" x-show="activeTab==='training'">
+    <!-- ══════════════════ MODELS & TRAINING TAB ══════════════════════════ -->
+    <section class="tab-section" x-show="activeTab==='training'">
 
-      <!-- Active model + pending logs summary -->
+      <!-- Active model summary -->
       <div class="model-summary-bar">
         <template x-if="modelVersions.active">
           <div class="model-active-card">
@@ -413,8 +217,83 @@
         <div class="pending-logs-card" :class="modelVersions.pending_logs > 0 ? 'pending-has-logs' : 'pending-empty'">
           <div class="pending-count" x-text="modelVersions.pending_logs"></div>
           <div class="pending-label">new flow logs<br>available for training</div>
-          <div class="pending-hint" x-show="modelVersions.pending_logs === 0">No new logs uploaded since last training</div>
-          <div class="pending-hint" x-show="modelVersions.pending_logs > 0">Use Data Source = Database below to include these</div>
+          <div class="pending-hint" x-show="modelVersions.pending_logs === 0">No new logs since last training</div>
+          <div class="pending-hint" x-show="modelVersions.pending_logs > 0">Select "Database" below to include these</div>
+        </div>
+      </div>
+
+      <!-- Performance metrics (moved from top strip) -->
+      <div class="alerts-header" style="border-top:1px solid var(--border)">
+        <div>
+          <h2>Performance Metrics</h2>
+          <p class="section-sub">Live metrics computed from analyst feedback. Baseline shows training-eval report values.</p>
+        </div>
+        <button @click="loadMetrics()">Refresh</button>
+      </div>
+      <div class="kpi-strip" style="padding:0 20px 16px">
+        <div class="kpi-card">
+          <div class="kpi-label">F1 Score</div>
+          <div class="kpi-val" x-text="metrics.f1 != null ? (metrics.f1*100).toFixed(1)+'%' : '—'"></div>
+          <div class="kpi-sub" x-text="metrics.feedback_count > 0 ? 'live ('+metrics.feedback_count+' labels)' : 'baseline (training eval)'"></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Precision</div>
+          <div class="kpi-val" x-text="metrics.precision != null ? (metrics.precision*100).toFixed(1)+'%' : '—'"></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Recall</div>
+          <div class="kpi-val" x-text="metrics.recall != null ? (metrics.recall*100).toFixed(1)+'%' : '—'"></div>
+        </div>
+        <div class="kpi-card" x-show="metrics.false_alarm_ratio != null">
+          <div class="kpi-label">FAR</div>
+          <div class="kpi-val" x-text="(metrics.false_alarm_ratio*100).toFixed(1)+'%'"></div>
+          <div class="kpi-sub">false alarm ratio</div>
+        </div>
+        <div class="kpi-card" x-show="metrics.attack_miss_ratio != null">
+          <div class="kpi-label">AMR</div>
+          <div class="kpi-val" x-text="(metrics.attack_miss_ratio*100).toFixed(1)+'%'"></div>
+          <div class="kpi-sub">attack miss ratio</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">AE Threshold</div>
+          <div class="kpi-val" x-text="metrics.ae_threshold != null ? metrics.ae_threshold.toFixed(6) : '—'"></div>
+          <div class="kpi-sub">p95 reconstruction error</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Total Flows</div>
+          <div class="kpi-val" x-text="metrics.total_alerts ?? '—'"></div>
+        </div>
+      </div>
+
+      <!-- Feature importance lists -->
+      <div class="alerts-header" style="border-top:1px solid var(--border)">
+        <div>
+          <h2>Feature Importance — Required vs Optional</h2>
+          <p class="section-sub">RF Gini impurity reduction across 200 trees. Required features (&gt;1%) must be present in the inference CSV. Optional features (≤1%) are median-imputed if absent.</p>
+        </div>
+      </div>
+      <div class="feature-split-grid" style="padding:0 20px 20px">
+        <div>
+          <div class="feature-list-head">Required — 42 features (Gini &gt; 1%)</div>
+          <div class="feature-chip-list">
+            <template x-for="f in featureGroups.required" :key="f.name">
+              <span class="feature-chip feature-chip-required" :title="'Importance: '+(f.importance*100).toFixed(2)+'%'">
+                <span x-text="f.name"></span>
+                <span class="feature-chip-pct" x-text="(f.importance*100).toFixed(1)+'%'"></span>
+              </span>
+            </template>
+          </div>
+        </div>
+        <div>
+          <div class="feature-list-head">Optional — 28 features (≤ 1%, median-imputed if absent)</div>
+          <div class="feature-chip-list">
+            <template x-for="f in featureGroups.optional" :key="f.name">
+              <span class="feature-chip feature-chip-optional" :title="'Importance: '+(f.importance*100).toFixed(2)+'%'">
+                <span x-text="f.name"></span>
+                <span class="feature-chip-pct" x-text="(f.importance*100).toFixed(2)+'%'"></span>
+              </span>
+            </template>
+          </div>
         </div>
       </div>
 
@@ -422,9 +301,9 @@
       <div class="alerts-header" style="border-top:1px solid var(--border)">
         <div>
           <h2>Train New Model Version</h2>
-          <p class="section-sub" x-show="modelVersions.pending_logs === 0">No new logs to train on. Upload flows via the Inference tab and label them in Recent Inferences first.</p>
+          <p class="section-sub" x-show="modelVersions.pending_logs === 0">No new logs available. Submit flows in the Inference tab and label them first.</p>
           <p class="section-sub" x-show="modelVersions.pending_logs > 0">
-            <strong x-text="modelVersions.pending_logs"></strong> new flows available. Select "Database" to include analyst-labelled logs on top of the baseline CSV set.
+            <strong x-text="modelVersions.pending_logs"></strong> new flows available.
           </p>
         </div>
         <button @click="loadTrainingHistory(); loadModelVersions()">Refresh</button>
@@ -440,10 +319,8 @@
         </label>
         <label>Data source
           <select x-model="training.dataSource" :disabled="training.running">
-            <option value="csv">CSV only (baseline public dataset)</option>
-            <option value="db" :disabled="modelVersions.pending_logs === 0">
-              Database (includes <span x-text="modelVersions.pending_logs"></span> analyst-labelled flows)
-            </option>
+            <option value="csv">CSV only (baseline dataset)</option>
+            <option value="db" :disabled="modelVersions.pending_logs === 0">Database (analyst-labelled flows)</option>
           </select>
         </label>
         <button class="btn-train" @click="startTraining()" :disabled="training.running">
@@ -466,24 +343,14 @@
         </div>
       </template>
 
-      <!-- Model version registry -->
+      <!-- Model registry + history -->
       <div style="padding:0 20px 20px">
-        <h3 style="font-size:13px;color:var(--text-muted);margin-bottom:4px">Model Version Registry</h3>
-        <p class="section-sub" style="margin-bottom:12px">Each training run creates a versioned snapshot. RF and AE versions are tracked independently. <strong>Activate</strong> to switch to a historical version (takes effect on service restart).</p>
+        <h3 class="result-section-head">Model Version Registry</h3>
+        <p class="section-sub" style="margin-bottom:12px">RF and AE active versions tracked independently. <strong>Use RF / Use AE</strong> to switch a stage to a historical version.</p>
         <div style="overflow-x:auto">
           <table>
             <thead>
-              <tr>
-                <th>Version</th>
-                <th>Stage</th>
-                <th>Source</th>
-                <th>Flows Used</th>
-                <th>RF F1 (macro)</th>
-                <th>Created</th>
-                <th>RF Active</th>
-                <th>AE Active</th>
-                <th>Actions</th>
-              </tr>
+              <tr><th>Version</th><th>Stage</th><th>Source</th><th>Flows</th><th>RF F1</th><th>Created</th><th>RF</th><th>AE</th><th>Actions</th></tr>
             </thead>
             <tbody>
               <template x-for="v in modelVersions.versions" :key="v.id">
@@ -496,35 +363,25 @@
                   <td x-text="v.trained_flow_count > 0 ? v.trained_flow_count.toLocaleString() : '—'"></td>
                   <td x-text="v.metrics?.metrics?.f1_macro ? (v.metrics.metrics.f1_macro*100).toFixed(1)+'%' : '—'"></td>
                   <td x-text="v.created_at ? new Date(v.created_at).toLocaleDateString() : '—'"></td>
-                  <td>
-                    <span class="tag" :class="v.is_active_rf ? 'tag-safe' : 'tag-known_pattern'"
-                          x-text="v.is_active_rf ? '● RF' : '—'"></span>
-                  </td>
-                  <td>
-                    <span class="tag" :class="v.is_active_ae ? 'tag-safe' : 'tag-known_pattern'"
-                          x-text="v.is_active_ae ? '● AE' : '—'"></span>
-                  </td>
+                  <td><span class="tag" :class="v.is_active_rf ? 'tag-safe' : 'tag-known_pattern'" x-text="v.is_active_rf ? '● active' : '—'"></span></td>
+                  <td><span class="tag" :class="v.is_active_ae ? 'tag-safe' : 'tag-known_pattern'" x-text="v.is_active_ae ? '● active' : '—'"></span></td>
                   <td style="white-space:nowrap">
-                    <button class="btn-sm" :disabled="v.is_active_rf" @click="activateRfVersion(v.id)"
-                            x-text="v.is_active_rf ? 'RF in use' : 'Use RF'"></button>
-                    <button class="btn-sm" :disabled="v.is_active_ae" @click="activateAeVersion(v.id)"
-                            style="margin-left:4px"
-                            x-text="v.is_active_ae ? 'AE in use' : 'Use AE'"></button>
+                    <button class="btn-sm" :disabled="v.is_active_rf" @click="activateRfVersion(v.id)" x-text="v.is_active_rf ? 'RF in use' : 'Use RF'"></button>
+                    <button class="btn-sm" :disabled="v.is_active_ae" @click="activateAeVersion(v.id)" style="margin-left:4px" x-text="v.is_active_ae ? 'AE in use' : 'Use AE'"></button>
                   </td>
                 </tr>
               </template>
-              <template x-if="modelVersions.versions?.length === 0">
+              <template x-if="!modelVersions.versions?.length">
                 <tr><td colspan="9" style="text-align:center;color:var(--text-muted)">No versions registered yet</td></tr>
               </template>
             </tbody>
           </table>
         </div>
 
-        <!-- Training run history -->
-        <h3 style="font-size:13px;color:var(--text-muted);margin:20px 0 8px">Training Run History</h3>
+        <h3 class="result-section-head" style="margin-top:20px">Training Run History</h3>
         <table>
           <thead>
-            <tr><th>#</th><th>Stage</th><th>Status</th><th>Source</th><th>Started</th><th>Duration</th><th>Metrics</th></tr>
+            <tr><th>#</th><th>Stage</th><th>Status</th><th>Source</th><th>Started</th><th>Duration</th><th>Key Metrics</th></tr>
           </thead>
           <tbody>
             <template x-for="run in training.history" :key="run.id">
@@ -543,12 +400,283 @@
                 </td>
               </tr>
             </template>
-            <template x-if="training.history.length === 0">
+            <template x-if="!training.history.length">
               <tr><td colspan="7" style="text-align:center;color:var(--text-muted)">No training runs yet</td></tr>
             </template>
           </tbody>
         </table>
       </div>
+
+    </section>
+
+    <!-- ══════════════════ INFERENCE TAB ══════════════════════════════════ -->
+    <section class="tab-section" x-show="activeTab==='infer'">
+
+      <div class="alerts-header">
+        <div>
+          <h2>Inference</h2>
+          <p class="section-sub">Submit network flow logs as CSV. Each row passes through the 3-stage pipeline and is persisted for feedback and retraining.</p>
+        </div>
+        <div class="seg-ctrl">
+          <button class="seg-btn" :class="inferMode==='paste'  ? 'seg-active':''" @click="inferMode='paste'">Paste CSV</button>
+          <button class="seg-btn" :class="inferMode==='upload' ? 'seg-active':''" @click="inferMode='upload'">Upload File</button>
+        </div>
+      </div>
+
+      <!-- CSV format hint -->
+      <details class="csv-hint-block">
+        <summary class="csv-hint-summary">
+          CSV Format — 42 required + 28 optional CIC-IDS2017 features
+          <span class="csv-hint-badge">expand</span>
+        </summary>
+        <div class="csv-hint-inner">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">
+            <div>
+              <div class="feature-list-head" style="margin-bottom:6px">Required columns (42) — must be present</div>
+              <div class="csv-hint-pre" style="font-size:10px;max-height:120px;overflow-y:auto" x-text="REQUIRED_FEATURES.join(', ')"></div>
+            </div>
+            <div>
+              <div class="feature-list-head" style="margin-bottom:6px">Optional columns (28) — median-imputed if absent</div>
+              <div class="csv-hint-pre" style="font-size:10px;max-height:120px;overflow-y:auto;opacity:0.7" x-text="OPTIONAL_FEATURES.join(', ')"></div>
+            </div>
+          </div>
+          <p class="section-sub">Column names are case-sensitive. Extra columns (e.g. Timestamp, Flow ID from CICFlowMeter) are silently ignored.</p>
+          <div style="margin-top:8px">
+            <span class="predict-label">Full 72-column template header:</span>
+            <pre class="csv-hint-pre" style="margin-top:4px" x-text="ALL_FEATURES.join(',')"></pre>
+          </div>
+        </div>
+      </details>
+
+      <!-- Paste mode -->
+      <div x-show="inferMode==='paste'" style="padding:14px 20px 0">
+        <div class="infer-presets">
+          <span class="predict-label">Sample data:</span>
+          <button class="btn-preset" @click="loadPreset('benign')">🟢 Benign (HTTPS port 443)</button>
+          <button class="btn-preset btn-preset-attack" @click="loadPreset('attack')">🔴 Attack (SSH port-scan)</button>
+        </div>
+        <label class="predict-label" style="display:block;margin-bottom:6px;margin-top:10px">Paste CSV — header row + one or more data rows</label>
+        <textarea class="predict-textarea" x-model="infer.csvText" rows="8" spellcheck="false"
+          placeholder="Destination Port,Flow Duration,...&#10;443,50000,..."></textarea>
+      </div>
+
+      <!-- Upload mode -->
+      <div x-show="inferMode==='upload'" style="padding:20px 20px 0">
+        <div class="drop-zone"
+             :class="batch.dragOver ? 'drop-zone-active' : ''"
+             @dragover.prevent="batch.dragOver=true"
+             @dragleave.prevent="batch.dragOver=false"
+             @drop="handleDrop($event)">
+          <div class="drop-zone-inner">
+            <div class="drop-icon">📂</div>
+            <div class="drop-text">Drag &amp; drop a .csv file here</div>
+            <div class="drop-sub">or</div>
+            <label class="btn-upload">
+              Browse…
+              <input type="file" accept=".csv" style="display:none" @change="handleFileInput($event)" />
+            </label>
+            <div class="drop-hint">42 required columns minimum; optional columns are median-imputed</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Advanced Options -->
+      <details class="adv-options" style="margin:14px 20px 0">
+        <summary class="adv-options-summary">⚙ Advanced Options — Model Version Override</summary>
+        <div class="adv-options-body">
+          <label>RF Model Version
+            <select x-model="infer.rfVersionId">
+              <template x-for="v in rfVersions()" :key="v.id">
+                <option :value="v.id" x-text="v.version_tag + (v.is_active_rf ? ' ● active' : '')"></option>
+              </template>
+              <template x-if="rfVersions().length === 0"><option disabled>No RF versions</option></template>
+            </select>
+          </label>
+          <label>AE (LSTM) Version
+            <select x-model="infer.aeVersionId">
+              <template x-for="v in aeVersions()" :key="v.id">
+                <option :value="v.id" x-text="v.version_tag + (v.is_active_ae ? ' ● active' : '')"></option>
+              </template>
+              <template x-if="aeVersions().length === 0"><option disabled>No AE versions</option></template>
+            </select>
+          </label>
+          <div style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end">
+            <button class="btn-sm" @click="applyModelVersions()">Apply</button>
+            <span class="section-sub" x-show="infer.applyMsg" x-text="infer.applyMsg" style="font-size:11px;color:var(--safe)"></span>
+          </div>
+        </div>
+      </details>
+
+      <!-- Run button (paste) -->
+      <div x-show="inferMode==='paste'" style="padding:14px 20px 20px">
+        <button class="btn-train" style="width:100%" @click="submitCsvPaste()" :disabled="batch.loading">
+          <span x-show="!batch.loading">▶ Run Inference</span>
+          <span x-show="batch.loading">⏳ Processing…</span>
+        </button>
+        <p x-show="batch.error" class="error-msg" style="margin-top:8px" x-text="formatBatchError(batch.error)"></p>
+      </div>
+
+      <!-- Upload status -->
+      <div x-show="inferMode==='upload'" style="padding:10px 20px 0">
+        <div x-show="batch.loading" class="batch-status">⏳ Processing rows…</div>
+        <p x-show="batch.error && !batch.loading" class="error-msg" x-text="formatBatchError(batch.error)"></p>
+      </div>
+
+      <!-- Single-row pipeline breakdown -->
+      <template x-if="batch.result && batch.result.processed === 1 && !batch.loading">
+        <div style="padding:0 20px 16px">
+          <h3 class="result-section-head">Pipeline Breakdown — Single Flow</h3>
+          <div class="pipeline-flow">
+            <div class="pipeline-stage">
+              <div class="stage-label">Stage 1 — Rule Engine</div>
+              <div class="stage-verdict" :class="batch.result.results[0].rule_verdict==='SUSPICIOUS'?'stage-suspicious':'stage-benign'" x-text="batch.result.results[0].rule_verdict"></div>
+              <div x-show="batch.result.results[0].rules.length > 0" class="stage-detail">Triggered: <span x-text="batch.result.results[0].rules.join(', ')"></span></div>
+              <div x-show="!batch.result.results[0].rules.length" class="stage-detail stage-muted">No rules triggered</div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-stage" :class="batch.result.results[0].ai_skipped ? 'stage-skipped' : ''">
+              <div class="stage-label">Stage 2 — Random Forest</div>
+              <template x-if="!batch.result.results[0].ai_skipped">
+                <div>
+                  <div class="stage-verdict stage-rf" x-text="batch.result.results[0].rf_label==='0'?'BENIGN':'ATTACK: '+batch.result.results[0].rf_label"></div>
+                  <div class="conf-bar-wrap"><div class="conf-bar" :style="'width:'+(batch.result.results[0].rf_conf*100).toFixed(0)+'%'"></div></div>
+                  <div class="stage-detail" x-text="(batch.result.results[0].rf_conf*100).toFixed(1)+'% confidence'"></div>
+                </div>
+              </template>
+              <template x-if="batch.result.results[0].ai_skipped">
+                <div class="stage-muted">Skipped — rule said BENIGN</div>
+              </template>
+            </div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-stage" :class="batch.result.results[0].ai_skipped ? 'stage-skipped' : ''">
+              <div class="stage-label">Stage 3 — LSTM-AE</div>
+              <template x-if="!batch.result.results[0].ai_skipped">
+                <div>
+                  <div class="stage-verdict" :class="batch.result.results[0].ae_score > (metrics.ae_threshold||0) ? 'stage-suspicious' : 'stage-benign'" x-text="batch.result.results[0].ae_score > (metrics.ae_threshold||0) ? 'ANOMALY' : 'BENIGN'"></div>
+                  <div class="stage-detail">Score: <strong x-text="batch.result.results[0].ae_score.toFixed(6)"></strong></div>
+                  <div class="stage-detail stage-muted">Threshold: <span x-text="(metrics.ae_threshold||0).toFixed(6)"></span></div>
+                </div>
+              </template>
+              <template x-if="batch.result.results[0].ai_skipped">
+                <div class="stage-muted">Skipped — fast path</div>
+              </template>
+            </div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-stage pipeline-stage-consensus">
+              <div class="stage-label">Consensus Verdict</div>
+              <div class="stage-consensus-verdict">
+                <span class="tag" :class="consensusColorClass(batch.result.results[0].consensus)" x-text="batch.result.results[0].consensus"></span>
+              </div>
+              <div class="stage-detail" x-text="batch.result.results[0].severity + ' severity'"></div>
+            </div>
+          </div>
+          <button class="btn-train" style="margin-top:14px" @click="explainBatchRow(batch.result.results[0])">🔍 Explain This Flow</button>
+        </div>
+      </template>
+
+      <!-- Batch summary + table -->
+      <template x-if="batch.result && !batch.loading">
+        <div style="padding:0 20px 16px">
+          <div class="batch-summary-cards">
+            <div class="batch-stat"><div class="batch-stat-val" x-text="batch.result.total"></div><div class="batch-stat-label">Total rows</div></div>
+            <div class="batch-stat"><div class="batch-stat-val" x-text="batch.result.processed"></div><div class="batch-stat-label">Processed</div></div>
+            <div class="batch-stat" x-show="batch.result.error_count > 0"><div class="batch-stat-val" style="color:var(--confirmed)" x-text="batch.result.error_count"></div><div class="batch-stat-label">Parse errors</div></div>
+            <template x-for="item in batchConsensusSummary()" :key="item.label">
+              <div class="batch-stat">
+                <div class="batch-stat-val"><span class="tag" :class="'tag-'+item.label.toLowerCase()" x-text="item.count"></span></div>
+                <div class="batch-stat-label" x-text="item.label"></div>
+              </div>
+            </template>
+          </div>
+          <template x-if="batch.result.processed > 1">
+            <div>
+              <h3 class="result-section-head">Per-Row Results</h3>
+              <div style="overflow-x:auto;max-height:280px;overflow-y:auto">
+                <table>
+                  <thead><tr><th>Row</th><th>Consensus</th><th>Severity</th><th>RF Label</th><th>RF Conf</th><th>AE Score</th><th>Rules</th><th>Explain</th></tr></thead>
+                  <tbody>
+                    <template x-for="row in batch.result.results" :key="row.row">
+                      <tr :class="'row-'+row.severity.toLowerCase()">
+                        <td x-text="row.row"></td>
+                        <td><span class="tag" :class="'tag-'+row.consensus.toLowerCase()" x-text="row.consensus"></span></td>
+                        <td x-text="row.severity"></td>
+                        <td x-text="row.rf_label"></td>
+                        <td x-text="row.ai_skipped ? '—' : (row.rf_conf*100).toFixed(1)+'%'"></td>
+                        <td x-text="row.ai_skipped ? '—' : row.ae_score.toFixed(6)"></td>
+                        <td x-text="row.rules.length ? row.rules.join(', ') : '—'"></td>
+                        <td><button class="btn-sm" @click="explainBatchRow(row)">Explain</button></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Recent Inferences log -->
+      <div class="alerts-header" style="border-top:1px solid var(--border)">
+        <div>
+          <h2>Inference Log</h2>
+          <p class="section-sub">Persistent log of all submitted flows. Label TP / FP / FN to feed incremental retraining.</p>
+        </div>
+        <button @click="loadAlerts()">Refresh</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Rule S1</th>
+              <th>RF S2</th>
+              <th>AE Score S3</th>
+              <th>Consensus</th>
+              <th>Severity</th>
+              <th>Feedback</th>
+              <th>Explain</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="alert in alerts" :key="alert.id">
+              <tr :class="'row-' + alert.severity.toLowerCase()">
+                <td x-text="new Date(alert.timestamp).toLocaleTimeString()"></td>
+                <td>
+                  <span class="tag" :class="alert.rf_label==='SKIPPED' ? 'tag-safe' : 'tag-known_pattern'"
+                        x-text="alert.rf_label==='SKIPPED' ? 'SAFE' : 'SUSPICIOUS'"></span>
+                </td>
+                <td>
+                  <span x-show="alert.rf_label !== 'SKIPPED'" x-text="alert.rf_label + ' · ' + (alert.rf_conf*100).toFixed(1)+'%'"></span>
+                  <span x-show="alert.rf_label === 'SKIPPED'" class="text-muted">— (fast path)</span>
+                </td>
+                <td>
+                  <span x-show="alert.ae_score > 0" :style="alert.ae_score > metrics.ae_threshold ? 'color:var(--confirmed)' : ''" x-text="alert.ae_score.toFixed(4)"></span>
+                  <span x-show="alert.ae_score <= 0" class="text-muted">—</span>
+                </td>
+                <td><span class="tag" :class="'tag-'+alert.consensus.toLowerCase()" x-text="alert.consensus"></span></td>
+                <td x-text="alert.severity"></td>
+                <td>
+                  <template x-if="feedbackState[alert.id]">
+                    <span class="feedback-given" x-text="feedbackLabel(alert.id)"></span>
+                  </template>
+                  <template x-if="!feedbackState[alert.id]">
+                    <div class="feedback-btns">
+                      <button class="btn-fb btn-tp" title="True Positive" @click="submitFeedback(alert.id, 'TRUE_POSITIVE')">✓ TP</button>
+                      <button class="btn-fb btn-fp" title="False Positive" @click="submitFeedback(alert.id, 'FALSE_POSITIVE')">✗ FP</button>
+                      <button class="btn-fb btn-fn" title="False Negative" @click="submitFeedback(alert.id, 'FALSE_NEGATIVE')">? FN</button>
+                    </div>
+                  </template>
+                </td>
+                <td><button class="btn-sm" @click="selectAlert(alert)">Explain</button></td>
+              </tr>
+            </template>
+            <template x-if="alerts.length === 0">
+              <tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:24px">No flows submitted yet</td></tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
     </section>
 
   </main>
@@ -562,14 +690,10 @@
         <div class="explain-consensus" x-show="selectedAlert.consensus">
           <span class="tag" :class="consensusColorClass(selectedAlert.consensus)" x-text="selectedAlert.consensus"></span>
         </div>
-        <div class="explain-nl">
-          <p x-text="explanation.natural_language || '…'"></p>
-        </div>
+        <div class="explain-nl"><p x-text="explanation.natural_language || '…'"></p></div>
         <h4>RF Feature Importance (Gini)</h4>
-        <p class="chart-sub" style="margin-bottom:8px">Higher = feature contributed more to the classification decision</p>
         <canvas id="importanceChart" style="max-height:180px"></canvas>
         <h4 style="margin-top:20px">AE Reconstruction Error per Feature</h4>
-        <p class="chart-sub" style="margin-bottom:8px">Higher = feature was harder to reconstruct; signals anomalous behaviour</p>
         <canvas id="aeErrorChart" style="max-height:180px"></canvas>
       </div>
     </template>

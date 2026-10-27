@@ -21,6 +21,10 @@ async def get_metrics(db: AsyncSession = Depends(get_db)):
     live_recall    = tp / (tp + fn) if (tp + fn) > 0 else None
     live_f1        = (2 * live_precision * live_recall / (live_precision + live_recall)) if (live_precision and live_recall) else None
     fpr = fp / (fp + (counts["total"] - tp - fn)) if counts["total"] > 0 else None
+    # FAR = FP / (FP + TP) — proportion of raised alerts that were wrong (false alarm rate)
+    far = fp / (fp + tp) if (fp + tp) > 0 else None
+    # AMR = FN / (FN + TP) — proportion of actual attacks that were missed (attack miss rate)
+    amr = fn / (fn + tp) if (fn + tp) > 0 else None
 
     # Baseline metrics from the active model version (training eval report)
     baseline_precision = baseline_recall = baseline_f1 = None
@@ -37,6 +41,8 @@ async def get_metrics(db: AsyncSession = Depends(get_db)):
         recall=live_recall if counts["feedback_count"] > 0 else baseline_recall,
         f1=live_f1 if counts["feedback_count"] > 0 else baseline_f1,
         false_positive_rate=fpr,
+        false_alarm_ratio=far,
+        attack_miss_ratio=amr,
         total_alerts=counts["total"],
         feedback_count=counts["feedback_count"],
         ae_threshold=ae_inference.threshold,

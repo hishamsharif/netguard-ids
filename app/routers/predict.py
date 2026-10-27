@@ -80,6 +80,38 @@ async def predict_batch(file: UploadFile = File(...), db: AsyncSession = Depends
     if not rows:
         raise HTTPException(status_code=422, detail="CSV file is empty or has no data rows")
 
+    # Validate CSV columns against required vs optional feature split.
+    # Required = RF Gini importance > 1% (42 features). Optional = remaining 28.
+    # Missing required → 422. Missing optional → silently substitute training median.
+    all_features = preprocessor.feature_names
+    if all_features:
+        csv_cols = {k.strip() for k in rows[0].keys()}
+        required_features = [
+            f for f in all_features
+            if f not in {
+                "Bwd IAT Mean", "Flow Packets/s", "Fwd Header Length", "Avg Bwd Segment Size",
+                "Bwd IAT Total", "Bwd IAT Min", "Idle Std", "Bwd IAT Std", "Active Max",
+                "Fwd Packets/s", "SYN Flag Count", "Idle Mean", "act_data_pkt_fwd",
+                "Bwd IAT Max", "RST Flag Count", "Fwd Packet Length Min", "PSH Flag Count",
+                "CWE Flag Count", "Active Mean", "Fwd PSH Flags", "Packet Length Variance",
+                "min_seg_size_forward", "Active Min", "Packet Length Std", "ACK Flag Count",
+                "Bwd PSH Flags", "FIN Flag Count", "URG Flag Count",
+                "Idle Max", "Idle Min",
+            }
+        ]
+        missing_required = [f for f in required_features if f not in csv_cols]
+        if missing_required:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": f"CSV is missing {len(missing_required)} required feature column(s). "
+                               f"Optional features (low importance) may be omitted — training median is substituted.",
+                    "missing_required_columns": missing_required,
+                    "hint": "Column names must match CIC-IDS2017 feature names exactly (case-sensitive). "
+                            "Use the format hint in the UI for the full 72-column template.",
+                },
+            )
+
     results, errors = [], []
     for i, row in enumerate(rows):
         try:

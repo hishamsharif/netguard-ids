@@ -535,3 +535,65 @@ td { padding: 10px 16px; border-bottom: 1px solid var(--border); }
   margin-bottom: 10px;
   padding-top: 4px;
 }
+
+/* ── About tab ────────────────────────────────────────────────────────────── */
+.about-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 16px;
+  padding: 20px;
+}
+.about-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+.about-card h2 { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.about-card-wide { grid-column: 1 / -1; }
+.about-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.about-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
+.about-table td:first-child { color: var(--text-muted); width: 44%; }
+.about-list { padding-left: 16px; font-size: 12px; line-height: 1.7; color: var(--text-muted); }
+.about-list li { margin-bottom: 4px; }
+.about-list strong { color: var(--text); }
+.about-metrics-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+.about-metric { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.about-metric-val { font-size: 1.3rem; font-weight: 700; color: var(--accent); }
+.about-metric-label { font-size: 10px; color: var(--text-muted); margin-top: 3px; }
+.metric-good { color: var(--safe); }
+.pipeline-stage-about { flex: 1; min-width: 140px; }
+.pipeline-stage-about .stage-hint { font-size: 10px; color: var(--text-muted); margin-bottom: 6px; }
+.stage-outcome { font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-top: 4px; }
+.stage-benign { color: var(--safe); }
+.stage-suspicious { color: var(--known); }
+
+/* ── KPI strip (training tab) ─────────────────────────────────────────────── */
+.kpi-strip { display: flex; flex-wrap: wrap; gap: 12px; }
+.kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; min-width: 100px; }
+.kpi-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+.kpi-val { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
+.kpi-sub { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+/* ── Feature chips ─────────────────────────────────────────────────────────── */
+.feature-split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 700px) { .feature-split-grid { grid-template-columns: 1fr; } }
+.feature-list-head { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; font-weight: 600; }
+.feature-chip-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.feature-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 12px; font-size: 10px; cursor: default; }
+.feature-chip-required { background: #3b82f622; border: 1px solid #3b82f655; color: var(--text); }
+.feature-chip-optional { background: #64748b18; border: 1px solid var(--border); color: var(--text-muted); }
+.feature-chip-pct { font-size: 9px; color: var(--text-muted); }
+
+/* ── Model summary bar (training tab) ─────────────────────────────────────── */
+.model-summary-bar { display: flex; gap: 16px; padding: 16px 20px; flex-wrap: wrap; }
+.model-active-card { background: var(--surface); border: 1px solid var(--safe); border-radius: 10px; padding: 12px 16px; flex: 1; min-width: 200px; }
+.model-active-tag { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.model-active-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.model-active-notes { font-size: 11px; color: var(--text-muted); }
+.pending-logs-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; text-align: center; min-width: 130px; }
+.pending-has-logs { border-color: var(--known); }
+.pending-count { font-size: 1.8rem; font-weight: 700; color: var(--known); }
+.pending-label { font-size: 11px; color: var(--text-muted); }
+.pending-hint { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
+.pending-empty .pending-count { color: var(--text-muted); font-size: 1.4rem; }

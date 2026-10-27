@@ -253,12 +253,14 @@ function dashboard() {
     async submitFeedback(alertId, verdict) {
       this.feedbackState[alertId] = 'pending';
       try {
-        await fetch(`/alerts/${alertId}/feedback`, {
+        const res = await fetch(`/alerts/${alertId}/feedback`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ verdict }),
         });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         this.feedbackState[alertId] = verdict;
+        await this.loadMetrics();   // refresh KPI strip + FAR/AMR immediately
       } catch (e) {
         delete this.feedbackState[alertId];
         alert('Feedback error: ' + e.message);

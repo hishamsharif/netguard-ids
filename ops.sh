@@ -127,6 +127,14 @@ local_api_start() {
     ok "API already running (PID $(cat "$API_PID_FILE"))"
     return
   fi
+  # Kill any stale process on :8000 (e.g. zombie uvicorn from a previous conda run)
+  local stale_pid
+  stale_pid=$(lsof -ti :8000 2>/dev/null || true)
+  if [ -n "$stale_pid" ]; then
+    warn "Port 8000 in use by PID $stale_pid — killing before start..."
+    kill "$stale_pid" 2>/dev/null || true
+    sleep 1
+  fi
   info "Starting API server on :8000 ..."
   PYTHONPATH="$SCRIPT_DIR" conda run -n "$CONDA_ENV" \
     uvicorn app.main:app --host 0.0.0.0 --port 8000 \

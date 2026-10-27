@@ -25,8 +25,7 @@ _HIGH_RISK_PORTS = {
     139,   # NetBIOS Session (Botnet)
     1433,  # MSSQL (Brute Force)
     3389,  # RDP (Brute Force)
-    8080,  # HTTP Alt (Web Attacks)
-    80,    # HTTP (Web Attacks — only combined with other flags)
+    8080,  # HTTP Alt — only when combined with attack indicators (see R-06)
 }
 
 # Features are submitted with their raw CIC-IDS2017 names (may contain spaces)
@@ -94,7 +93,9 @@ def evaluate(features: dict) -> RuleResult:
 
     # ── Rule R-06: High-risk destination port ────────────────────────
     dst_port = int(_f(features, "Destination Port", "destination_port"))
-    if dst_port in _HIGH_RISK_PORTS:
+    psh_count = _f(features, "PSH Flag Count", "psh_flag_count")
+    web_attack_port = dst_port in {80, 8080} and (flow_bytes_s > 100_000 or psh_count > 20)
+    if dst_port in _HIGH_RISK_PORTS or web_attack_port:
         triggered.append("R-06:high_risk_port")
         details["dst_port"] = dst_port
 
